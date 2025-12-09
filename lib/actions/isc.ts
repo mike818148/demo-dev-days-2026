@@ -138,7 +138,9 @@ async function getAccessModelMetadataValues(
   try {
     const configurationParams: ConfigurationParameters = {
       baseurl: process.env.ISC_BASE_API_URL,
-      accessToken: session?.accessToken,
+      clientId: process.env.ISC_SVC_CLIENT_ID,
+      clientSecret: process.env.ISC_SVC_CLIENT_SECRET,
+      tokenUrl: `${process.env.ISC_BASE_API_URL}/oauth/token`,
     };
 
     const apiConfig = new Configuration(configurationParams);
