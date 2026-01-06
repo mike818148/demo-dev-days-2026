@@ -39,7 +39,7 @@ import {
 } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Calendar } from "@/components/ui/calendar";
-import { cn } from "@/lib/utils";
+import { cn, isRequestCommentsRequired } from "@/lib/utils";
 import { checkIdentitiesForAccessToRole } from "@/lib/actions/isc";
 import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 
@@ -56,27 +56,6 @@ interface ReviewStepProps {
   removalDates?: Record<string, string>;
   onRemovalDateChange?: (roleId: string, date: string) => void;
 }
-
-// Helper function to check if requestCommentsRequired is true
-const isRequestCommentsRequired = (role: RoleDocument): boolean => {
-  const metadata = (role as any).accessModelMetadata;
-  if (!metadata || !Array.isArray(metadata)) {
-    return false;
-  }
-
-  const attribute = metadata.find(
-    (attr: any) => attr.name === "requestCommentsRequired"
-  );
-  if (!attribute) {
-    return false;
-  }
-  // Check if value is "true" (string) or true (boolean)
-  return (
-    attribute.value === "true" ||
-    attribute.value === true ||
-    attribute.value === "True"
-  );
-};
 
 export function ReviewStep({
   selectedRequestees,

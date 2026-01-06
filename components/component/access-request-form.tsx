@@ -8,7 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { createAccessRequest } from "@/lib/actions/isc";
 import { IdentityDocument, RoleDocument } from "sailpoint-api-client";
 import { toast } from "sonner";
-import { cn } from "@/lib/utils";
+import { cn, isRequestCommentsRequired } from "@/lib/utils";
 import { SelectIdentityStep } from "./access-request-steps/select-identity-step";
 import { SearchAccessStep } from "./access-request-steps/search-access-step";
 import { ReviewStep } from "./access-request-steps/review-step";
@@ -127,7 +127,8 @@ export default function AccessRequestForm() {
       const result = await createAccessRequest(
         cart,
         selectedRequestees,
-        "" // Reason removed from UI, using empty string
+        roleComments,
+        removalDates
       );
 
       if ("error" in result) {
@@ -155,27 +156,6 @@ export default function AccessRequestForm() {
   // Validation helper
   const isSubmitDisabled =
     cart.length === 0 || selectedRequestees.length === 0 || isSubmitting;
-
-  // Helper function to check if requestCommentsRequired is true
-  const isRequestCommentsRequired = (role: RoleDocument): boolean => {
-    const metadata = (role as any).accessModelMetadata;
-    if (!metadata || !Array.isArray(metadata)) {
-      return false;
-    }
-
-    const attribute = metadata.find(
-      (attr: any) => attr.name === "requestCommentsRequired"
-    );
-    if (!attribute) {
-      return false;
-    }
-    // Check if value is "true" (string) or true (boolean)
-    return (
-      attribute.value === "true" ||
-      attribute.value === true ||
-      attribute.value === "True"
-    );
-  };
 
   // Step navigation
   const canProceedToStep2 = selectedRequestees.length > 0;

@@ -187,13 +187,16 @@ export async function getRoleDepartments(): Promise<
  * Creates an access request for a role
  * @param roles - The roles to request access for
  * @param requestees - The requestees to request access for
- * @param reason - Optional reason for the access request
+ * @param reason - Optional reason for the access request (deprecated, use roleComments instead)
+ * @param roleComments - Optional map of role ID to comment for each role
+ * @param removalDates - Optional map of role ID to removal date (ISO 8601 format: '2020-07-11T21:23:15.000Z')
  * @returns Promise with success message or error
  */
 export async function createAccessRequest(
   roles: RoleDocument[],
   requestees: IdentityDocument[],
-  reason?: string
+  roleComments?: Record<string, string>,
+  removalDates?: Record<string, string>
 ): Promise<{ message: string } | { error: string }> {
   try {
     const session = await getServerSession(authOptions);
@@ -218,15 +221,53 @@ export async function createAccessRequest(
     const apiConfig = new Configuration(configurationParams);
     const api = new AccessRequestsApi(apiConfig);
 
+    // Helper function to convert date string to ISO 8601 format
+    const formatDateToISO = (dateString: string): string => {
+      if (!dateString) return "";
+      // If already in ISO format, return as is
+      if (dateString.includes("T") && dateString.includes("Z")) {
+        return dateString;
+      }
+      // Try to parse and convert to ISO format
+      try {
+        const date = new Date(dateString);
+        if (isNaN(date.getTime())) {
+          return "";
+        }
+        // Format as ISO 8601 with milliseconds and Z: '2020-07-11T21:23:15.000Z'
+        return date.toISOString();
+      } catch {
+        return "";
+      }
+    };
+
     const res = await api.createAccessRequest({
       accessRequest: {
         requestedFor: requestees.map((requestee) => requestee.id),
         requestType: AccessRequestType.GrantAccess,
-        requestedItems: roles.map((role) => ({
-          type: "ROLE",
-          id: role.id,
-          comment: reason || "",
-        })),
+        requestedItems: roles.map((role) => {
+          const item: any = {
+            type: "ROLE",
+            id: role.id,
+          };
+
+          // Use role-specific comment if available, otherwise fall back to reason
+          const comment = roleComments?.[role.id] || "";
+          if (comment) {
+            item.comment = comment;
+          }
+
+          // Add removal date if provided
+          const removalDate = removalDates?.[role.id];
+          if (removalDate) {
+            const formattedDate = formatDateToISO(removalDate);
+            if (formattedDate) {
+              item.removeDate = formattedDate;
+            }
+          }
+
+          return item;
+        }),
       },
     });
 
@@ -236,8 +277,15 @@ export async function createAccessRequest(
       return { error: "Failed to create access request" };
     }
   } catch (error) {
-    console.error("Error creating access request:", error);
-    return { error: "Failed to create access request" };
+    console.error(
+      "Error creating access request:",
+      JSON.stringify((error as any).response?.data, null, 2)
+    );
+    return {
+      error:
+        "Failed to create access request: " +
+        JSON.stringify((error as any).response?.data?.messages, null, 2),
+    };
   }
 }
 
@@ -263,12 +311,11 @@ export async function getMyRequests(
     const params: AccessRequestsApiListAccessRequestStatusRequest = {
       offset: offset,
       limit: limit,
+      sorters: "-created",
       requestedFor: requesteeId ?? undefined,
       requestState: status,
     };
     const requests = await api.listAccessRequestStatus(params);
-
-    console.log("requests", JSON.stringify(requests.data, null, 2));
 
     return { requests: requests.data };
   } catch (error) {

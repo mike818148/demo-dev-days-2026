@@ -41,6 +41,7 @@ import {
 } from "@/lib/actions/isc";
 import { RoleDocument } from "sailpoint-api-client";
 import { toast } from "sonner";
+import { isRequestCommentsRequired } from "@/lib/utils";
 import { DocumentActionButtons } from "@/components/component/document-action-buttons";
 
 interface SearchAccessStepProps {
@@ -71,27 +72,6 @@ const getMetadataValue = (
     name: attribute.name,
     value: attribute.value,
   };
-};
-
-// Helper function to check if requestCommentsRequired is true
-const isRequestCommentsRequired = (role: RoleDocument): boolean => {
-  const metadata = (role as any).accessModelMetadata;
-  if (!metadata || !Array.isArray(metadata)) {
-    return false;
-  }
-
-  const attribute = metadata.find(
-    (attr: any) => attr.name === "requestCommentsRequired"
-  );
-  if (!attribute) {
-    return false;
-  }
-  // Check if value is "true" (string) or true (boolean)
-  return (
-    attribute.value === "true" ||
-    attribute.value === true ||
-    attribute.value === "True"
-  );
 };
 
 export function SearchAccessStep({

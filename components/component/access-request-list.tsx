@@ -13,11 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  ResizablePanelGroup,
-  ResizablePanel,
-  ResizableHandle,
-} from "@/components/ui/resizable";
+import { ResizablePanelGroup, ResizablePanel } from "@/components/ui/resizable";
 import { RequestedItemStatus } from "sailpoint-api-client";
 
 const ITEMS_PER_PAGE = 10;
