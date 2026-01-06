@@ -1,7 +1,7 @@
 "use client";
 
 import { Badge } from "@/components/ui/badge";
-import { Card } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
 import {
   CheckCircle2,
@@ -451,24 +451,30 @@ export function AccessRequestView({ request }: { request: AccessRequest }) {
 
           {/* Error Messages */}
           {request.errorMessages && request.errorMessages.length > 0 && (
-            <Card className="p-6 border-destructive/20 bg-destructive/5">
-              <h2 className="mb-4 text-lg font-semibold flex items-center gap-2 text-destructive">
-                <XCircle className="h-5 w-5" />
-                Errors
-              </h2>
-              <div className="space-y-2">
-                {request.errorMessages.map((error, index) => (
-                  <div
-                    key={index}
-                    className="rounded-lg border border-destructive/20 bg-background p-3"
-                  >
-                    <p className="text-sm">{error.text}</p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      Locale: {error.locale}
-                    </p>
-                  </div>
-                ))}
-              </div>
+            <Card className="border-destructive/20 bg-destructive/5">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-destructive">
+                  <XCircle className="h-5 w-5" />
+                  Errors
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2">
+                  {request.errorMessages.map((error, index) => (
+                    <div
+                      key={index}
+                      className="rounded-lg border border-destructive/20 bg-background p-3 overflow-hidden"
+                    >
+                      <p className="text-sm whitespace-pre-wrap break-all">
+                        {error.text}
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1 break-all">
+                        Locale: {error.locale}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
             </Card>
           )}
         </div>

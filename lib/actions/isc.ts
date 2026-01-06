@@ -17,6 +17,8 @@ import {
   AccessRequestsApi,
   RequestedItemStatus,
   AccessRequestsApiListAccessRequestStatusRequest,
+  BrandingApi,
+  BrandingItem,
 } from "sailpoint-api-client";
 
 /**
@@ -37,6 +39,7 @@ async function performSearch(
       baseurl: process.env.ISC_BASE_API_URL,
       accessToken: session?.accessToken,
     };
+    // TODO: There seems to be a bug in the SearchApi where it doesn't use Client ID and Client Secret.
     /*const configurationParams: ConfigurationParameters = {
       baseurl: process.env.ISC_BASE_API_URL,
       clientId: process.env.ISC_SEARCH_CLIENT_ID,
@@ -58,8 +61,14 @@ async function performSearch(
 
     return { data: val.data };
   } catch (error) {
-    console.error(`Error searching ${errorContext}:`, error);
-    return { error: `Failed to search ${errorContext}` };
+    const messages = (error as any).response?.data?.messages;
+    const messagesString = messages
+      ? JSON.stringify(messages)
+      : "Unknown error";
+    console.error(`Error searching ${errorContext}:`, messagesString);
+    return {
+      error: `Failed to search ${errorContext}: ${messagesString}`,
+    };
   }
 }
 
@@ -116,6 +125,7 @@ export async function searchRoles(
   queryParts.push(`enabled:true`);
 
   const queryString = queryParts.join(" AND ");
+  console.log("queryString", queryString);
 
   const result = await performSearch(["roles"], queryString, "roles");
 
@@ -258,9 +268,161 @@ export async function getMyRequests(
     };
     const requests = await api.listAccessRequestStatus(params);
 
+    console.log("requests", JSON.stringify(requests.data, null, 2));
+
     return { requests: requests.data };
   } catch (error) {
     console.error("Error getting my requests:", error);
     return { error: "Failed to get my requests" };
+  }
+}
+
+export async function getDocumentById(
+  index:
+    | "accessprofiles"
+    | "accountactivities"
+    | "entitlements"
+    | "events"
+    | "identities"
+    | "roles",
+  id: string
+): Promise<{ document: SearchDocument } | { error: string }> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return { error: "Authentication required" };
+    }
+    const configurationParams: ConfigurationParameters = {
+      baseurl: process.env.ISC_BASE_API_URL,
+      accessToken: session.accessToken,
+    };
+    const apiConfig = new Configuration(configurationParams);
+    const api = new SearchApi(apiConfig);
+    const result = await api.searchGet({
+      index: index,
+      id: id,
+    });
+    return { document: result.data };
+  } catch (error) {
+    console.error("Error getting document by id:", error);
+    return { error: "Failed to get document by id" };
+  }
+}
+
+export async function getBranding(): Promise<
+  { branding: BrandingItem[] } | { error: string }
+> {
+  try {
+    const configurationParams: ConfigurationParameters = {
+      baseurl: process.env.ISC_BASE_API_URL,
+      clientId: process.env.ISC_SVC_CLIENT_ID,
+      clientSecret: process.env.ISC_SVC_CLIENT_SECRET,
+      tokenUrl: `${process.env.ISC_BASE_API_URL}/oauth/token`,
+    };
+    const apiConfig = new Configuration(configurationParams);
+    const api = new BrandingApi(apiConfig);
+    const result = await api.getBrandingList();
+    return { branding: result.data };
+  } catch (error) {
+    console.error("Error getting branding:", error);
+    return { error: "Failed to get branding" };
+  }
+}
+
+export async function getDefaultBranding(): Promise<
+  { branding: BrandingItem } | { error: string }
+> {
+  try {
+    try {
+      const configurationParams: ConfigurationParameters = {
+        baseurl: process.env.ISC_BASE_API_URL,
+        clientId: process.env.ISC_SVC_CLIENT_ID,
+        clientSecret: process.env.ISC_SVC_CLIENT_SECRET,
+        tokenUrl: `${process.env.ISC_BASE_API_URL}/oauth/token`,
+      };
+      const apiConfig = new Configuration(configurationParams);
+      const api = new BrandingApi(apiConfig);
+      const result = await api.getBranding({
+        name: "default",
+      });
+      return { branding: result.data };
+    } catch (error) {
+      console.error("Error getting branding:", error);
+      return { error: "Failed to get branding" };
+    }
+  } catch (error) {
+    console.error("Error getting branding:", error);
+    return { error: "Failed to get branding" };
+  }
+}
+
+export async function getUsersWithAccessToRole(
+  roleId: string
+): Promise<{ users: IdentityDocument[] } | { error: string }> {
+  try {
+    const result = await performSearch(
+      ["identities"],
+      `@access(id:${roleId} AND type:ROLE)`,
+      "identities"
+    );
+    if ("error" in result) {
+      return result;
+    }
+    return { users: result.data.flatMap((doc) => doc as IdentityDocument[]) };
+  } catch (error) {
+    console.error("Error getting users with access to role:", error);
+    return { error: "Failed to get users with access to role" };
+  }
+}
+
+export async function checkIdentitiesForAccessToRole(
+  roleId: string,
+  identities: string[]
+): Promise<{ identitiesWithAccess: string[] } | { error: string }> {
+  const usersWithAccess = await getUsersWithAccessToRole(roleId);
+  if ("error" in usersWithAccess) {
+    return { error: "Failed to get users with access to role" };
+  }
+  const identitiesWithAccess = usersWithAccess.users
+    .map((user) => user.id)
+    .filter((id) => identities.includes(id));
+  return {
+    identitiesWithAccess: identitiesWithAccess.filter((id) =>
+      identities.includes(id)
+    ),
+  };
+}
+
+export async function cancelAccessRequest(
+  accessRequestId: string,
+  comment?: string
+): Promise<{ success: boolean } | { error: string }> {
+  console.log("accessRequestId", accessRequestId);
+  console.log("comment", comment);
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return { error: "Authentication required" };
+    }
+    const configurationParams: ConfigurationParameters = {
+      baseurl: process.env.ISC_BASE_API_URL,
+      accessToken: session.accessToken,
+    };
+    const apiConfig = new Configuration(configurationParams);
+    const api = new AccessRequestsApi(apiConfig);
+    const result = await api.cancelAccessRequest({
+      cancelAccessRequest: {
+        accountActivityId: accessRequestId,
+        comment: comment ?? "Cancelled by user",
+      },
+    });
+    if (result.status.toString().startsWith("2")) {
+      return { success: true };
+    } else {
+      return { error: "Failed to cancel access request" };
+    }
+  } catch (error) {
+    console.error("Error canceling access request:", error);
+    return { error: "Failed to cancel access request" };
   }
 }

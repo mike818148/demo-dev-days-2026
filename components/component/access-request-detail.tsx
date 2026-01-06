@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Card } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
@@ -16,9 +18,12 @@ import {
   Shield,
   FileText,
   X,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { RequestedItemStatus } from "sailpoint-api-client";
+import { cancelAccessRequest } from "@/lib/actions/isc";
+import { toast } from "sonner";
 
 const getStateColor = (state: string) => {
   const colors = {
@@ -60,6 +65,9 @@ export function AccessRequestDetail({
 }: {
   request: RequestedItemStatus;
 }) {
+  const router = useRouter();
+  const [isCancelling, setIsCancelling] = useState(false);
+
   const formatDate = (date: string) => {
     return new Date(date).toLocaleDateString("en-US", {
       year: "numeric",
@@ -89,7 +97,8 @@ export function AccessRequestDetail({
               </Badge>
             </div>
             <p className="text-sm text-muted-foreground">
-              Request ID: <span className="font-mono">{request.id}</span>
+              Request ID:{" "}
+              <span className="font-mono">{request.accessRequestId}</span>
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -99,18 +108,51 @@ export function AccessRequestDetail({
                 {request.privilegeLevel} Privilege
               </Badge>
             )}
-            {/* TODO: Implement cancel request logic
-             * request.cancelable && request.state !== "CANCELLED" && (
+            {request.cancelable && request.state !== "CANCELLED" && (
               <Button
                 variant="destructive"
                 size="sm"
-                onClick={handleCancel}
+                disabled={isCancelling}
+                onClick={async () => {
+                  setIsCancelling(true);
+                  try {
+                    const result = await cancelAccessRequest(
+                      request.accessRequestId ?? "",
+                      "Cancelled by user"
+                    );
+                    if ("success" in result) {
+                      toast.success("Request cancelled successfully", {
+                        description:
+                          "Request will be cancelled in a few minutes.",
+                      });
+                      // Refresh the page after successful cancellation
+                      setTimeout(() => {
+                        router.refresh();
+                        window.location.reload();
+                      }, 1000);
+                    } else {
+                      toast.error(result.error || "Failed to cancel request", {
+                        description: "Please try again later.",
+                      });
+                    }
+                  } catch (error) {
+                    toast.error("Failed to cancel request", {
+                      description: "Please try again later.",
+                    });
+                  } finally {
+                    setIsCancelling(false);
+                  }
+                }}
                 className="flex items-center gap-2"
               >
-                <X className="h-4 w-4" />
+                {isCancelling ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <X className="h-4 w-4" />
+                )}
                 Cancel Request
               </Button>
-            )*/}
+            )}
           </div>
         </div>
         {request.description && (
@@ -198,12 +240,13 @@ export function AccessRequestDetail({
                       <div className="h-full w-px bg-border my-2" />
                     )}
                   </div>
-                  <div className="flex-1 pb-4">
+                  <div className="flex-1 pb-4 pt-1">
                     <div className="flex items-start justify-between gap-4">
                       <div className="space-y-1">
                         <div className="flex items-center gap-2">
                           <p className="text-sm font-medium">
-                            {approval.currentOwner?.name}
+                            {approval.currentOwner?.name ||
+                              approval.originalOwner?.name}
                           </p>
                           <Badge variant="outline" className="text-xs">
                             {approval.scheme}
@@ -215,11 +258,13 @@ export function AccessRequestDetail({
                           )}
                         </div>
                         {approval.originalOwner &&
+                          approval.currentOwner &&
                           approval.originalOwner.id !==
-                            approval.currentOwner?.id && (
+                            approval.currentOwner.id && (
                             <p className="text-xs text-muted-foreground flex items-center gap-1">
                               Originally: {approval.originalOwner.name}
                               <ArrowRight className="h-3 w-3" />
+                              {approval.currentOwner.name}
                             </p>
                           )}
                         {approval.comment && (
@@ -238,9 +283,11 @@ export function AccessRequestDetail({
                         {approval.status}
                       </Badge>
                     </div>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      {formatDate(approval.modified ?? "")}
-                    </p>
+                    {approval.modified && (
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {formatDate(approval.modified)}
+                      </p>
+                    )}
                   </div>
                 </div>
               ))}
@@ -424,9 +471,11 @@ export function AccessRequestDetail({
               {request.errorMessages.flat().map((error, index) => (
                 <div
                   key={index}
-                  className="rounded-lg border border-destructive/20 bg-background p-3"
+                  className="rounded-lg border border-destructive/20 bg-background p-3 overflow-hidden"
                 >
-                  <p className="text-sm">{error.text}</p>
+                  <p className="text-sm whitespace-pre-wrap break-words">
+                    {error.text}
+                  </p>
                 </div>
               ))}
             </div>
