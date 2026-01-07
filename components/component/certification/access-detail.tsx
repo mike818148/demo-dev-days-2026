@@ -160,7 +160,7 @@ export function AccessDetail({ accessReviewItem }: AccessDetailProps) {
               text={accessReviewItem.completed ? "Yes" : "No"}
             />
           </Descriptions.Item>
-          <Descriptions.Item label="New Access">
+          <Descriptions.Item label="New Access" span={2}>
             <Badge
               status={accessReviewItem.newAccess ? "processing" : "default"}
               text={accessReviewItem.newAccess ? "Yes" : "No"}
@@ -336,7 +336,7 @@ export function AccessDetail({ accessReviewItem }: AccessDetailProps) {
               <Descriptions bordered column={2} size="small">
                 {accessReviewItem.accessSummary.entitlement.dataAccess
                   .impactScore && (
-                  <Descriptions.Item label="Impact Score">
+                  <Descriptions.Item label="Impact Score" span={2}>
                     <Tag
                       color={
                         accessReviewItem.accessSummary.entitlement.dataAccess.impactScore?.value?.toLowerCase() ===

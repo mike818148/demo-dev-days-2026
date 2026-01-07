@@ -123,7 +123,7 @@ export function IdentityInfo({ identityId }: IdentityInfoProps) {
   if (loading) {
     return (
       <div style={{ textAlign: "center", padding: "50px 0" }}>
-        <Spin size="large" tip="Loading identity information..." />
+        <Spin size="large" />
       </div>
     );
   }
@@ -216,7 +216,7 @@ export function IdentityInfo({ identityId }: IdentityInfoProps) {
       <Row gutter={[24, 24]}>
         {/* Basic Information */}
         <Col xs={24} sm={24} md={12} lg={8}>
-          <Card title="Basic Information" bordered={false}>
+          <Card title="Basic Information" variant="outlined">
             <Descriptions bordered column={1} size="small">
               <Descriptions.Item label="First Name">
                 {getAttributeValue("firstname")}
@@ -248,7 +248,7 @@ export function IdentityInfo({ identityId }: IdentityInfoProps) {
 
         {/* Status & Timeline */}
         <Col xs={24} sm={24} md={12} lg={8}>
-          <Card title="Status & Timeline" bordered={false}>
+          <Card title="Status & Timeline" variant="outlined">
             <div style={{ marginBottom: 16 }}>
               <Badge
                 status={
@@ -302,7 +302,7 @@ export function IdentityInfo({ identityId }: IdentityInfoProps) {
 
         {/* Additional Attributes */}
         <Col xs={24} sm={24} md={24} lg={8}>
-          <Card title="Additional Attributes" bordered={false}>
+          <Card title="Additional Attributes" variant="outlined">
             {identity?.attributes && getAttributeKeys().length > 0 ? (
               <div>
                 {getAttributeKeys().map((attr) => (

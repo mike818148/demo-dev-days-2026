@@ -58,8 +58,8 @@ import {
 } from "sailpoint-api-client";
 import { toast } from "sonner";
 import Timer from "antd/es/statistic/Timer";
-import { IdentityInfo } from "./identity-info";
-import { AccessDetail } from "./access-detail";
+import { IdentityInfo } from "./certification/identity-info";
+import { AccessDetail } from "./certification/access-detail";
 import { useRouter } from "next/navigation";
 
 const { TextArea } = Input;
@@ -86,6 +86,7 @@ export function CertificationDetail({
 }: CertificationDetailProps) {
   const { theme: nextTheme } = useTheme();
   const router = useRouter();
+  const [mounted, setMounted] = useState(false);
   const [loading, setLoading] = useState(false);
   const [certificationDetails, setCertificationDetails] =
     useState<CertificationDetails | null>(null);
@@ -209,6 +210,10 @@ export function CertificationDetail({
       setLoading(false);
     }
   }, [certificationId]);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     loadCertificationDetails();
@@ -1359,9 +1364,11 @@ export function CertificationDetail({
 
   // Ant Design theme configuration based on next-themes
   const antdTheme = useMemo(() => {
+    // Use default algorithm until mounted to prevent hydration mismatch
+    const themeMode = mounted && nextTheme === "dark" ? "dark" : "light";
     return {
       algorithm:
-        nextTheme === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm,
+        themeMode === "dark" ? theme.darkAlgorithm : theme.defaultAlgorithm,
       components: {
         Statistic: {
           contentFontSize: 14,
@@ -1393,7 +1400,7 @@ export function CertificationDetail({
         },
       },
     };
-  }, [nextTheme]);
+  }, [nextTheme, mounted]);
 
   // Timeline component that uses theme token
   const TimelineContent = ({
