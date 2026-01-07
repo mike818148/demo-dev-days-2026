@@ -1,7 +1,10 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import { ThemeProvider } from "@/providers/theme-provider";
+import { AntdRegistry } from "@ant-design/nextjs-registry";
+import Providers from "./providers";
+import { getServerSession } from "next-auth";
+import { authOptions } from "./api/auth/authOptions";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -10,22 +13,18 @@ export const metadata: Metadata = {
   description: "ACME DEMO - Identity Secure Cloud",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const session = await getServerSession(authOptions);
   return (
     <html lang="en" suppressHydrationWarning>
       <body className={inter.className}>
-        <ThemeProvider
-          attribute="class"
-          defaultTheme="system"
-          enableSystem
-          disableTransitionOnChange
-        >
-          {children}
-        </ThemeProvider>
+        <AntdRegistry>
+          <Providers session={session}>{children}</Providers>
+        </AntdRegistry>
       </body>
     </html>
   );

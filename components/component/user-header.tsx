@@ -120,6 +120,34 @@ export function UserHeader({ name, email }: UserHeaderProps) {
         <NavigationMenu>
           <NavigationMenuList>
             <NavigationMenuItem>
+              <NavigationMenuTrigger className="text-primary-foreground hover:text-primary/80 hover:bg-transparent data-[state=open]:bg-transparent data-[state=open]:text-primary/80 bg-transparent">
+                Access Review
+              </NavigationMenuTrigger>
+              <NavigationMenuContent>
+                <ul className="grid w-[200px] gap-1 p-2">
+                  <li>
+                    <NavigationMenuLink asChild>
+                      <Link
+                        href="/certification"
+                        className="group block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                      >
+                        <div className="text-sm font-medium leading-none group-hover:text-accent-foreground">
+                          Certification Management
+                        </div>
+                        <p className="line-clamp-2 text-xs leading-snug text-muted-foreground group-hover:text-accent-foreground/80">
+                          Review and manage certifications
+                        </p>
+                      </Link>
+                    </NavigationMenuLink>
+                  </li>
+                </ul>
+              </NavigationMenuContent>
+            </NavigationMenuItem>
+          </NavigationMenuList>
+        </NavigationMenu>
+        <NavigationMenu>
+          <NavigationMenuList>
+            <NavigationMenuItem>
               <NavigationMenuTrigger className="group flex items-center gap-2 bg-transparent text-foreground hover:text-foreground/80 data-[state=open]:bg-transparent data-[state=open]:text-foreground/80">
                 <Avatar className="h-8 w-8 ring-1 ring-border transition group-hover:ring-ring/40">
                   <AvatarFallback className="bg-transparent text-primary-foreground group-hover:text-primary/80 data-[state=open]:text-primary/80">

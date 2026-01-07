@@ -153,10 +153,6 @@ export default function AccessRequestForm() {
     }
   };
 
-  // Validation helper
-  const isSubmitDisabled =
-    cart.length === 0 || selectedRequestees.length === 0 || isSubmitting;
-
   // Step navigation
   const canProceedToStep2 = selectedRequestees.length > 0;
   const canProceedToStep3 = cart.length > 0;

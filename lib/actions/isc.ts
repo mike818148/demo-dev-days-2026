@@ -19,6 +19,11 @@ import {
   AccessRequestsApiListAccessRequestStatusRequest,
   BrandingApi,
   BrandingItem,
+  IdentityCertificationDtoV2025,
+  CertificationsV2025Api,
+  IdentityReferenceWithNameAndEmailV2025,
+  AccessReviewItemV2025,
+  CertificationDecisionV2025,
 } from "sailpoint-api-client";
 
 /**
@@ -471,5 +476,230 @@ export async function cancelAccessRequest(
   } catch (error) {
     console.error("Error canceling access request:", error);
     return { error: "Failed to cancel access request" };
+  }
+}
+
+export async function listIdentityCertifications(): Promise<
+  { certifications: IdentityCertificationDtoV2025[] } | { error: string }
+> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return { error: "Authentication required" };
+    }
+    const configurationParams: ConfigurationParameters = {
+      baseurl: process.env.ISC_BASE_API_URL,
+      accessToken: session.accessToken,
+    };
+    const apiConfig = new Configuration(configurationParams);
+    const api = new CertificationsV2025Api(apiConfig);
+    const result = await api.listIdentityCertifications();
+    if (result.status === 200) {
+      return { certifications: result.data || [] };
+    } else {
+      return { error: "Failed to list identity certifications" };
+    }
+  } catch (error) {
+    console.error("Error listing identity certifications:", error);
+    const messages = (error as any).response?.data?.messages;
+    const messagesString = messages
+      ? JSON.stringify(messages)
+      : "Unknown error";
+    return {
+      error: `Failed to list identity certifications: ${messagesString}`,
+    };
+  }
+}
+
+export async function getIdentityCertification(
+  id: string
+): Promise<
+  { certification: IdentityCertificationDtoV2025 } | { error: string }
+> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return { error: "Authentication required" };
+    }
+    const configurationParams: ConfigurationParameters = {
+      baseurl: process.env.ISC_BASE_API_URL,
+      accessToken: session.accessToken,
+    };
+    const apiConfig = new Configuration(configurationParams);
+    const api = new CertificationsV2025Api(apiConfig);
+    const result = await api.getIdentityCertification({ id });
+    if (result.status === 200) {
+      return { certification: result.data };
+    } else {
+      return { error: "Failed to get identity certification" };
+    }
+  } catch (error) {
+    console.error("Error getting identity certification:", error);
+    const messages = (error as any).response?.data?.messages;
+    const messagesString = messages
+      ? JSON.stringify(messages)
+      : "Unknown error";
+    return {
+      error: `Failed to get identity certification: ${messagesString}`,
+    };
+  }
+}
+
+export async function listCertificationReviewers(
+  id: string
+): Promise<
+  { reviewers: IdentityReferenceWithNameAndEmailV2025[] } | { error: string }
+> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return { error: "Authentication required" };
+    }
+    const configurationParams: ConfigurationParameters = {
+      baseurl: process.env.ISC_BASE_API_URL,
+      accessToken: session.accessToken,
+    };
+    const apiConfig = new Configuration(configurationParams);
+    const api = new CertificationsV2025Api(apiConfig);
+    const result = await api.listCertificationReviewers({ id });
+    if (result.status === 200) {
+      return { reviewers: result.data || [] };
+    } else {
+      return { error: "Failed to list certification reviewers" };
+    }
+  } catch (error) {
+    console.error("Error listing certification reviewers:", error);
+    const messages = (error as any).response?.data?.messages;
+    const messagesString = messages
+      ? JSON.stringify(messages)
+      : "Unknown error";
+    return {
+      error: `Failed to list certification reviewers: ${messagesString}`,
+    };
+  }
+}
+
+export async function listIdentityAccessReviewItems(
+  id: string
+): Promise<{ items: AccessReviewItemV2025[] } | { error: string }> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return { error: "Authentication required" };
+    }
+    const configurationParams: ConfigurationParameters = {
+      baseurl: process.env.ISC_BASE_API_URL,
+      accessToken: session.accessToken,
+    };
+    const apiConfig = new Configuration(configurationParams);
+    const api = new CertificationsV2025Api(apiConfig);
+    const result = await api.listIdentityAccessReviewItems({ id });
+    if (result.status === 200) {
+      return { items: result.data || [] };
+    } else {
+      return { error: "Failed to list identity access review items" };
+    }
+  } catch (error) {
+    console.error("Error listing identity access review items:", error);
+    const messages = (error as any).response?.data?.messages;
+    const messagesString = messages
+      ? JSON.stringify(messages)
+      : "Unknown error";
+    return {
+      error: `Failed to list identity access review items: ${messagesString}`,
+    };
+  }
+}
+
+export async function getCampaign(
+  id: string,
+  detail?: "FULL" | "SUMMARY"
+): Promise<{ campaign: any } | { error: string }> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return { error: "Authentication required" };
+    }
+    // Note: Campaign API may not be available in the current version
+    // Returning empty campaign for now - can be implemented when API is available
+    return { campaign: null };
+  } catch (error) {
+    console.error("Error getting campaign:", error);
+    return {
+      error: `Failed to get campaign: ${String(error)}`,
+    };
+  }
+}
+
+export async function makeIdentityDecision(
+  id: string,
+  reviewDecisionV2025: Array<{
+    id: string;
+    decision: CertificationDecisionV2025;
+    bulk: boolean;
+    comments?: string;
+  }>
+): Promise<{ success: boolean } | { error: string }> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return { error: "Authentication required" };
+    }
+    const configurationParams: ConfigurationParameters = {
+      baseurl: process.env.ISC_BASE_API_URL,
+      accessToken: session.accessToken,
+    };
+    const apiConfig = new Configuration(configurationParams);
+    const api = new CertificationsV2025Api(apiConfig);
+    const result = await api.makeIdentityDecision({
+      id,
+      reviewDecisionV2025,
+    });
+    if (result.status >= 200 && result.status < 300) {
+      return { success: true };
+    } else {
+      return { error: "Failed to make identity decision" };
+    }
+  } catch (error) {
+    console.error("Error making identity decision:", error);
+    const messages = (error as any).response?.data?.messages;
+    const messagesString = messages
+      ? JSON.stringify(messages)
+      : "Unknown error";
+    return {
+      error: `Failed to make identity decision: ${messagesString}`,
+    };
+  }
+}
+
+export async function signOffIdentityCertification(
+  id: string
+): Promise<{ success: boolean } | { error: string }> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return { error: "Authentication required" };
+    }
+    const configurationParams: ConfigurationParameters = {
+      baseurl: process.env.ISC_BASE_API_URL,
+      accessToken: session.accessToken,
+    };
+    const apiConfig = new Configuration(configurationParams);
+    const api = new CertificationsV2025Api(apiConfig);
+    const result = await api.signOffIdentityCertification({ id });
+    if (result.status >= 200 && result.status < 300) {
+      return { success: true };
+    } else {
+      return { error: "Failed to sign off identity certification" };
+    }
+  } catch (error) {
+    console.error("Error signing off identity certification:", error);
+    const messages = (error as any).response?.data?.messages;
+    const messagesString = messages
+      ? JSON.stringify(messages)
+      : "Unknown error";
+    return {
+      error: `Failed to sign off identity certification: ${messagesString}`,
+    };
   }
 }
