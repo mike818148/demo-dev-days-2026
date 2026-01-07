@@ -25,13 +25,15 @@ export const authOptions: NextAuthOptions = {
         token.displayName = profile.displayName;
         token.name = profile.uid;
         token.capabilities = profile.capabilities;
-        token.accessTokenExpires = account.expires_at!;
+        // account.expires_at is in seconds (Unix timestamp), convert to milliseconds
+        token.accessTokenExpires = (account.expires_at as number) * 1000;
         token.refreshToken = account.refresh_token;
         return token;
       }
 
       // Return previous token if the access token has not expired yet
-      if (Date.now() < (token.accessTokenExpires as number) * 1000) {
+      // accessTokenExpires is stored in milliseconds
+      if (Date.now() < (token.accessTokenExpires as number)) {
         return token;
       }
 
@@ -82,7 +84,8 @@ async function refreshAccessToken(apiUrl: string, token: any) {
     return {
       ...token,
       accessToken: access_token,
-      accessTokenExpires: Date.now() + expires_in,
+      // expires_in is in seconds, convert to milliseconds
+      accessTokenExpires: Date.now() + expires_in * 1000,
       refreshToken: refresh_token ?? token.refreshToken, // Fall back to old refresh token
     };
   } catch (error) {
