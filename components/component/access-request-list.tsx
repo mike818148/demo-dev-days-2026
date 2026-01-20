@@ -13,7 +13,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { ResizablePanelGroup, ResizablePanel } from "@/components/ui/resizable";
 import { RequestedItemStatus } from "sailpoint-api-client";
 
 const ITEMS_PER_PAGE = 10;
@@ -113,16 +112,7 @@ export function AccessRequestList({
 
   return (
     <div className="w-full h-full p-2 flex flex-col min-w-0">
-      <ResizablePanelGroup orientation="vertical" className="h-full p-4">
-        {/* Search Section - Collapsible */}
-        <ResizablePanel
-          defaultSize={30}
-          minSize={0}
-          collapsible={true}
-          collapsedSize={5}
-          className="overflow-auto"
-        >
-          <div className="space-y-4 p-4">
+          <div className="space-y-4">
             <div>
               <h1 className="font-semibold text-balance">Access Requests</h1>
               {isLoading ? (
@@ -190,14 +180,9 @@ export function AccessRequestList({
               </div>
             </div>
           </div>
-        </ResizablePanel>
 
         {/* Results Section */}
-        <ResizablePanel
-          defaultSize={70}
-          minSize={30}
-          className="flex flex-col border-t p-4"
-        >
+
           <div className="flex-1 overflow-auto min-h-0">
             {isLoading ? (
               <div className="flex items-center justify-center flex-1 w-full">
@@ -306,8 +291,6 @@ export function AccessRequestList({
               </div>
             </div>
           )}
-        </ResizablePanel>
-      </ResizablePanelGroup>
     </div>
   );
 }
