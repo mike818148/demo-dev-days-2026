@@ -24,7 +24,15 @@ import {
   IdentityReferenceWithNameAndEmailV2025,
   AccessReviewItemV2025,
   CertificationDecisionV2025,
+  SODPoliciesApi,
+  SodPolicyRead,
+  RequestedItemDtoRef,
+  RequestedItemDtoRefTypeV3,
 } from "sailpoint-api-client";
+import { createMCPClient } from "@ai-sdk/mcp";
+import { openai } from "@ai-sdk/openai";
+import { generateText, tool, stepCountIs } from "ai";
+import z from "zod/v3";
 
 /**
  * Helper function to perform a search using the SearchApi
@@ -188,6 +196,26 @@ export async function getRoleDepartments(): Promise<
   return await getAccessModelMetadataValues("roleDepartment");
 }
 
+// Helper function to convert date string to ISO 8601 format
+const formatDateToISO = (dateString: string): string => {
+  if (!dateString) return "";
+  // If already in ISO format, return as is
+  if (dateString.includes("T") && dateString.includes("Z")) {
+    return dateString;
+  }
+  // Try to parse and convert to ISO format
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) {
+      return "";
+    }
+    // Format as ISO 8601 with milliseconds and Z: '2020-07-11T21:23:15.000Z'
+    return date.toISOString();
+  } catch {
+    return "";
+  }
+};
+
 /**
  * Creates an access request for a role
  * @param roles - The roles to request access for
@@ -201,7 +229,22 @@ export async function createAccessRequest(
   roles: RoleDocument[],
   requestees: IdentityDocument[],
   roleComments?: Record<string, string>,
-  removalDates?: Record<string, string>
+  removalDates?: Record<string, string>,
+): Promise<{ message: string } | { error: string }> {
+  const requestedItems = roles.map((role) => ({
+    id: role.id,
+    type: RequestedItemDtoRefTypeV3.Role,
+    comment: roleComments?.[role.id!] || "",
+    removeDate: removalDates?.[role.id!] ? formatDateToISO(removalDates?.[role.id!]) : undefined,
+  }));
+  const requesteeIds = requestees.map((requestee) => requestee.id);
+  return await createAccessRequestInternal(requestedItems, requesteeIds, AccessRequestType.GrantAccess);
+}
+
+async function createAccessRequestInternal(
+  requestedItems: RequestedItemDtoRef[],
+  requesteeIds: string[],
+  accessRequestType: AccessRequestType = AccessRequestType.GrantAccess,
 ): Promise<{ message: string } | { error: string }> {
   try {
     const session = await getServerSession(authOptions);
@@ -210,11 +253,11 @@ export async function createAccessRequest(
       return { error: "Authentication required" };
     }
 
-    if (!roles.length) {
-      return { error: "Roles are required" };
+    if (!requestedItems.length) {
+      return { error: "Requested items are required" };
     }
 
-    if (!requestees.length) {
+    if (!requesteeIds.length) {
       return { error: "Requestees are required" };
     }
 
@@ -226,53 +269,11 @@ export async function createAccessRequest(
     const apiConfig = new Configuration(configurationParams);
     const api = new AccessRequestsApi(apiConfig);
 
-    // Helper function to convert date string to ISO 8601 format
-    const formatDateToISO = (dateString: string): string => {
-      if (!dateString) return "";
-      // If already in ISO format, return as is
-      if (dateString.includes("T") && dateString.includes("Z")) {
-        return dateString;
-      }
-      // Try to parse and convert to ISO format
-      try {
-        const date = new Date(dateString);
-        if (isNaN(date.getTime())) {
-          return "";
-        }
-        // Format as ISO 8601 with milliseconds and Z: '2020-07-11T21:23:15.000Z'
-        return date.toISOString();
-      } catch {
-        return "";
-      }
-    };
-
     const res = await api.createAccessRequest({
       accessRequest: {
-        requestedFor: requestees.map((requestee) => requestee.id),
-        requestType: AccessRequestType.GrantAccess,
-        requestedItems: roles.map((role) => {
-          const item: any = {
-            type: "ROLE",
-            id: role.id,
-          };
-
-          // Use role-specific comment if available, otherwise fall back to reason
-          const comment = roleComments?.[role.id] || "";
-          if (comment) {
-            item.comment = comment;
-          }
-
-          // Add removal date if provided
-          const removalDate = removalDates?.[role.id];
-          if (removalDate) {
-            const formattedDate = formatDateToISO(removalDate);
-            if (formattedDate) {
-              item.removeDate = formattedDate;
-            }
-          }
-
-          return item;
-        }),
+        requestedFor: requesteeIds,
+        requestType: accessRequestType,
+        requestedItems: requestedItems,
       },
     });
 
@@ -474,8 +475,14 @@ export async function cancelAccessRequest(
       return { error: "Failed to cancel access request" };
     }
   } catch (error) {
-    console.error("Error canceling access request:", error);
-    return { error: "Failed to cancel access request" };
+    const messages = (error as any).response?.data?.messages;
+    const messagesString = messages
+      ? JSON.stringify(messages)
+      : "Unknown error";
+    console.error("Error canceling access request:", messagesString);
+    return {
+      error: `Failed to cancel access request: ${messagesString}`,
+    };
   }
 }
 
@@ -500,11 +507,11 @@ export async function listIdentityCertifications(): Promise<
       return { error: "Failed to list identity certifications" };
     }
   } catch (error) {
-    console.error("Error listing identity certifications:", error);
     const messages = (error as any).response?.data?.messages;
     const messagesString = messages
       ? JSON.stringify(messages)
       : "Unknown error";
+    console.error("Error listing identity certifications:", messagesString);
     return {
       error: `Failed to list identity certifications: ${messagesString}`,
     };
@@ -702,4 +709,289 @@ export async function signOffIdentityCertification(
       error: `Failed to sign off identity certification: ${messagesString}`,
     };
   }
+}
+
+export async function getPolicies(): Promise<{ policies: SodPolicyRead[] } | { error: string }> {
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      return { error: "Authentication required" };
+    }
+    const configurationParams: ConfigurationParameters = {
+      baseurl: process.env.ISC_BASE_API_URL,
+      accessToken: session.accessToken,
+    };
+    const apiConfig = new Configuration(configurationParams);
+    const api = new SODPoliciesApi(apiConfig);
+    const result = await api.listSodPolicies();
+    if (result.status >= 200 && result.status < 300) {
+      return { policies: result.data || [] };
+    } else {
+      return { error: "Failed to get policies" };
+    }
+  } catch (error) {
+    console.error("Error get policies:", error);
+    const messages = (error as any).response?.data?.messages;
+    const messagesString = messages
+      ? JSON.stringify(messages)
+      : "Unknown error";
+    return {
+      error: `Failed to get policies: ${messagesString}`,
+    };
+  }
+}
+
+export async function getPolicyViolatedIdentities(query: string): Promise<{ identities: IdentityDocument[] } | { error: string }> {
+  const result = await performSearch(["identities"], query, "policy violated identities");
+
+  if ("error" in result) {
+    return result;
+  }
+  // Convert SearchDocument[] to IdentityDocument[]
+  const identities: IdentityDocument[] = result.data.map((doc) => {
+    return doc as IdentityDocument;
+  });
+
+  return { identities };
+}
+
+export async function resolvePolicyViolationWithAI(policy: SodPolicyRead, identity: IdentityDocument): Promise<{ message: string } | { error: string }> {
+  console.log("[resolvePolicyViolationWithAI] Starting resolution for:", {
+    policyId: policy.id,
+    policyName: policy.name,
+    identityId: identity.id,
+    identityName: identity.name,
+  });
+
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session?.accessToken) {
+      console.error("[resolvePolicyViolationWithAI] Authentication required");
+      return { error: "Authentication required" };
+    }
+    const sessionUserId = session.user?.id;
+    const sessionUserName = session.user?.name;
+
+    // console.log("[resolvePolicyViolationWithAI] Access token:", session.accessToken);
+
+    const mcpUrl = `${process.env.ISC_BASE_API_URL}/v2025/access-requests/mcp`;
+    console.log("[resolvePolicyViolationWithAI] Creating MCP client with URL:", mcpUrl);
+
+    const mcpClient = await createMCPClient({
+      transport: {
+        type: "http",
+        url: mcpUrl,
+        headers: {
+          Authorization: `Bearer ${session.accessToken}`,
+        },
+      },
+      name: "isc-access-requests-mcp",
+    });
+    console.log("[resolvePolicyViolationWithAI] MCP client created successfully");
+
+    const iscMCPTools = await mcpClient.tools();
+    const availableToolsRaw: Record<string, any> = {
+      "create-access-request": iscMCPTools?.["create-access-request"],
+      // NOTE: here we assume the session user is a ORG_ADMIN (or direct Manager)in this use case. As per API documentation, 
+      "create-removal-access-request": tool({
+        description: 'Create a removal access request',
+        inputSchema: z.object({
+          requestedItem: z.object({
+            id: z.string().describe('The ID of the requested item'),
+            type: z.nativeEnum(RequestedItemDtoRefTypeV3).describe('The type of the requested item, can be "ACCESS_PROFILE", "ENTITLEMENT", or "ROLE", it must align with the ID of the requested item type'),
+            comment: z.string().describe('The comment for the access request'),
+          }).describe('The requested item to remove access for'),
+          requesteeId: z.string().describe('The requestee ID to remove access for'),
+        }),
+        execute: async ({ requestedItem, requesteeId }) => {
+          return await createAccessRequestInternal([requestedItem], [requesteeId], AccessRequestType.RevokeAccess);
+        },
+      }),
+      "search-access": tool({
+        description: 'Search Access Item for a missing required access',
+        inputSchema: z.object({
+          name: z.string().describe('The Access Item name to search for'),
+        }),
+        execute: async ({ name }) => {
+          return await performSearch(["accessprofiles", "entitlements", "roles"], `name:${name}`, "search-access");
+        },
+      }),
+    };
+
+    // Drop any undefined tools (e.g. if MCP didn't expose create-access-request)
+    const availableTools = Object.fromEntries(
+      Object.entries(availableToolsRaw).filter(([, v]) => Boolean(v))
+    );
+
+    const toolNamesList = Object.keys(availableTools);
+    const toolNames = toolNamesList.join(", ");
+    console.log("[resolvePolicyViolationWithAI] Available tools:", {
+      count: toolNamesList.length,
+      toolNames: toolNames || "None",
+    });
+
+    const formatConflictingAccessCriteria = (
+      conflictingAccessCriteria: any
+    ): string => {
+      const formatSide = (
+        sideLabel: "Left" | "Right",
+        side: any
+      ): string[] => {
+        const sideName = side?.name ? ` (${String(side.name)})` : "";
+        const header = `    ${sideLabel}${sideName}:`;
+
+        const criteriaList = Array.isArray(side?.criteriaList)
+          ? side.criteriaList
+          : [];
+
+        if (criteriaList.length === 0) {
+          return [header, "      - (none)"];
+        }
+
+        const lines = criteriaList.map((c: any) => {
+          const type = c?.type ? String(c.type) : "UNKNOWN";
+          const id = c?.id ? String(c.id) : "N/A";
+          const name = c?.name ? String(c.name) : "N/A";
+          return `      - ${type} | ${id} | ${name}`;
+        });
+
+        return [header, ...lines];
+      };
+
+      if (!conflictingAccessCriteria) {
+        return [
+          "    Left:",
+          "      - (none)",
+          "    Right:",
+          "      - (none)",
+        ].join("\n");
+      }
+
+      const left = (conflictingAccessCriteria as any).leftCriteria;
+      const right = (conflictingAccessCriteria as any).rightCriteria;
+
+      return [...formatSide("Left", left), ...formatSide("Right", right)].join(
+        "\n"
+      );
+    };
+    const conflictingAccessText = formatConflictingAccessCriteria(
+      policy.conflictingAccessCriteria
+    );
+
+    const formatIdentityAccess = (access: any): string => {
+      const accessList = Array.isArray(access) ? access : [];
+      if (accessList.length === 0) {
+        return "      - (none)";
+      }
+
+      return accessList
+        .map((item: any) => {
+          const type = item?.type ? String(item.type) : "UNKNOWN";
+          const id = item?.id ? String(item.id) : "N/A";
+          const name =
+            item?.name ?? item?.displayName
+              ? String(item.name ?? item.displayName)
+              : "N/A";
+          return `      - ${type} | ${id} | ${name}`;
+        })
+        .join("\n");
+    };
+    const identityAccessText = formatIdentityAccess((identity as any).access);
+
+    console.log("[resolvePolicyViolationWithAI] Calling AI model to resolve violation...");
+    const response = await generateText({
+      model: openai("gpt-5"),
+      tools: availableTools,
+      // Allow multi-step tool use (e.g. search-access -> create-access-request)
+      stopWhen: stepCountIs(8),
+      system: `You are a tool-only policy violation resolution assistant. Prefer tools over text generation. Your role is to help resolve policy violations by adjusting access as needed (this may require revoking/removing conflicting access OR granting missing required access).
+
+Strategy:
+- Available tools: ${toolNames || "None"}
+- Use Correction Advice as the primary driver for what to do. Some policies are resolved by removing/revoking access; other policies are resolved by granting missing access. Do not assume "revoke" is always correct.
+- Consider Compensating Controls when applicable, but prioritize actually resolving the violation as the policy intends.
+- Choose the smallest change that resolves the violation (least privilege / minimal impact).
+- Use tools to grant or revoke access as appropriate to resolve the violation
+- Tool limitation: the MCP tool "create-access-request" can only act for the current session user. If the target identity is not the session user, do not call tools; instead reply with the reason.
+- If no tools are available, reply with the three sections above, stating in Actions: "No tools available"; in Tools Used: "None"; in Decision Reasoning: why you cannot proceed.
+- If the violation is resolved, provide the full three-section summary of what was done, which tools were used, and why.
+- If you cannot determine a resolution, use the three sections to explain what you considered, that no resolution was chosen, and what information or capabilities would be needed.`,
+      prompt: `Resolve the policy violation for identity "${identity.name}" (ID: ${identity.id}) related to policy "${policy.name}" (ID: ${policy.id}). 
+      And return the result in the three sections format: Actions, Tools Used, and Decision Reasoning.
+
+Important:
+- Session user (tool limitation context): ${sessionUserName} (${sessionUserId})
+- If the target identity is not the session user, do nothing and reply why (the MCP create-access-request tool cannot act for other identities).
+- The policy's Correction Advice may instruct you to GRANT missing access instead of removing access. Follow it.
+- If Correction Advice indicates a grant, use the grant/create-access-request tool.
+- If Correction Advice indicates a revoke/removal, use the removal/revoke tool.
+- If you need an access item's ID/type to proceed, use search-access as a LOOKUP step, then immediately use the appropriate grant/revoke tool to complete the resolution. Do not stop after search-access unless no suitable match exists.
+
+Policy Details:
+  - ID: ${policy.id}
+  - Description: ${policy.description}
+  - Compensating Controls: ${policy.compensatingControls}
+  - Correction Advice: ${policy.correctionAdvice}
+  - policyQuery: ${policy.policyQuery}
+  - Conflicting Access:
+    ${conflictingAccessText}
+
+Identity Details:
+  - Name: ${identity.name}
+  - ID: ${identity.id}
+  - Email: ${identity.email}
+  - Status: ${identity.status}
+  - Access:
+    ${identityAccessText}
+`,
+    });
+
+    console.log("[resolvePolicyViolationWithAI] Action response received:", {
+      textLength: response.text?.length || 0,
+      hasToolCalls: response.toolCalls && response.toolCalls.length > 0,
+      toolCallsCount: response.toolCalls?.length || 0,
+    });
+
+    if (response.text) {
+      return {
+        message: response.text,
+      };
+    }
+
+    if (response.toolCalls && response.toolCalls.length > 0) {
+      console.log("[resolvePolicyViolationWithAI] Tool calls made:", response.toolCalls.map((tc: any) => ({
+        toolName: tc.toolName,
+        args: tc.args,
+      })));
+    }
+    console.log("[resolvePolicyViolationWithAI] Resolution completed successfully, response.toolResults:", JSON.stringify(response.toolResults, null, 2));
+
+    const summary = await generateText({
+      model: openai("gpt-5"),
+      prompt: `
+    Summarize the following action response
+    in three sections: Actions, Tools Used, Decision Reasoning.
+    
+    Tool results:
+    ${JSON.stringify(response.toolResults, null, 2)}
+    `,
+    });
+    return {
+      message: summary.text ?? "No summary returned",
+    };
+  } catch (error) {
+    console.error("[resolvePolicyViolationWithAI] Error resolving policy violation:", {
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      policyId: policy.id,
+      identityId: identity.id,
+    });
+    return {
+      error: `Failed to resolve policy violation with AI: ${String(error)}`,
+    };
+  }
+}
+
+export async function isOpenAIAvailable(): Promise<boolean> {
+  return !!process.env.OPENAI_API_KEY;
 }
