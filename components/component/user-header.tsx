@@ -149,6 +149,34 @@ export function UserHeader({ name, email }: UserHeaderProps) {
           <NavigationMenuList>
             <NavigationMenuItem>
               <NavigationMenuTrigger className="text-primary-foreground hover:text-primary/80 hover:bg-transparent data-[state=open]:bg-transparent data-[state=open]:text-primary/80 bg-transparent">
+                Non-Employee Management
+              </NavigationMenuTrigger>
+              <NavigationMenuContent>
+                <ul className="grid w-[220px] gap-1 p-2">
+                  <li>
+                    <NavigationMenuLink asChild>
+                      <Link
+                        href="/nerm"
+                        className="group block select-none space-y-1 rounded-md p-3 leading-none no-underline outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus:bg-accent focus:text-accent-foreground"
+                      >
+                        <div className="text-sm font-medium leading-none group-hover:text-accent-foreground">
+                          Dashboard
+                        </div>
+                        <p className="line-clamp-2 text-xs leading-snug text-muted-foreground group-hover:text-accent-foreground/80">
+                          Non-Employee Risk Management dashboard
+                        </p>
+                      </Link>
+                    </NavigationMenuLink>
+                  </li>
+                </ul>
+              </NavigationMenuContent>
+            </NavigationMenuItem>
+          </NavigationMenuList>
+        </NavigationMenu>
+        <NavigationMenu>
+          <NavigationMenuList>
+            <NavigationMenuItem>
+              <NavigationMenuTrigger className="text-primary-foreground hover:text-primary/80 hover:bg-transparent data-[state=open]:bg-transparent data-[state=open]:text-primary/80 bg-transparent">
                 Policy
               </NavigationMenuTrigger>
               <NavigationMenuContent>
