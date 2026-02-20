@@ -45,6 +45,42 @@ function withLeadingSystemMessage(
     ];
 }
 
+type AgentTools = ConstructorParameters<typeof ToolLoopAgent>[0]["tools"];
+
+let nonSailTransformToolsCache: AgentTools | null = null;
+let nonSailTransformToolsPromise: Promise<AgentTools> | null = null;
+
+async function getNonSailTransformTools(): Promise<{
+    tools: AgentTools;
+    fromCache: boolean;
+}> {
+    if (nonSailTransformToolsCache) {
+        return { tools: nonSailTransformToolsCache, fromCache: true };
+    }
+
+    if (nonSailTransformToolsPromise) {
+        const tools = await nonSailTransformToolsPromise;
+        return { tools, fromCache: true };
+    }
+
+    nonSailTransformToolsPromise = (async () => {
+        const { experimental_createSkillTool: createSkillTool } = await import("bash-tool");
+        const skillsDirectory = path.join(process.cwd(), "skills", "transform");
+        const { skill } = await createSkillTool({
+            skillsDirectory,
+        });
+        return { skill } as AgentTools;
+    })();
+
+    try {
+        const tools = await nonSailTransformToolsPromise;
+        nonSailTransformToolsCache = tools;
+        return { tools, fromCache: false };
+    } finally {
+        nonSailTransformToolsPromise = null;
+    }
+}
+
 /**
  * Run the transform agent. Single-prompt or conversation.
  * Use the same sandboxId for all turns of a conversation so tool state persists.
@@ -70,15 +106,12 @@ export async function runTransformAgent(
     // Non-Sail mode: run skill-only agent (no sandbox/bash tools).
     if (!sailCliEnabled) {
         emitStatus("Loading transform skill...");
-        const { experimental_createSkillTool: createSkillTool } = await import("bash-tool");
-        const skillsDirectory = path.join(process.cwd(), "skills", "transform");
-        const { skill } = await createSkillTool({
-            skillsDirectory,
-        });
+        const { tools, fromCache } = await getNonSailTransformTools();
+        if (fromCache) emitStatus("Using cached transform skill...");
 
         const agent = new ToolLoopAgent({
             model,
-            tools: { skill },
+            tools,
             stopWhen: stepCountIs(25),
         });
 

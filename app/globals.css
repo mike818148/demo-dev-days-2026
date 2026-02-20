@@ -130,18 +130,9 @@
   display: none !important;
 }
 
-/* Compact toolbox (left panel with transform types) */
+/* Hide toolbox in visual editor (graph-focused view) */
 .transform-visual-editor-wrapper .sqd-toolbox {
-  transform: none;
-  width: 150px;
-  bottom: 10px;
-  max-height: none;
-  font-size: 10px;
-  line-height: 1.15em;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  pointer-events: auto;
+  display: none !important;
 }
 .transform-visual-editor-wrapper .sqd-toolbox .sqd-scrollbox {
   flex: 1;

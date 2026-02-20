@@ -19,12 +19,12 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertTriangle, Check, Copy, Download, Eye, EyeOff, Redo2, Save, Undo2 } from "lucide-react";
+import { AlertTriangle, Check, Copy, Download, Eye, EyeOff, Redo2, Save, Undo2, Upload } from "lucide-react";
 import dynamic from "next/dynamic";
 import Prism from "prismjs";
 import "prismjs/components/prism-json";
 import Editor from "react-simple-code-editor";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect, useRef, type ChangeEvent } from "react";
 import { toast } from "sonner";
 
 const TRANSFORM_TYPES = [
@@ -70,6 +70,17 @@ type ChatStreamEvent =
     | { type: "error"; error: string };
 const NEW_TRANSFORM_OPTION = "__new_transform__";
 const MAX_TRANSFORM_HISTORY = 100;
+
+function toSafeFileBaseName(name?: string): string {
+    const fallback = "transform";
+    if (!name) return fallback;
+    const normalized = name
+        .trim()
+        .replace(/[^a-zA-Z0-9-_]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .toLowerCase();
+    return normalized || fallback;
+}
 
 const TransformVisualEditor = dynamic(
     () =>
@@ -132,6 +143,7 @@ function extractTransformJsonFromMessage(text: string): string | null {
 
 export default function TransformPage() {
     const skipNextVisualHistoryRef = useRef(true);
+    const uploadFileInputRef = useRef<HTMLInputElement | null>(null);
     const [transform, setTransform] = useState<TransformDefinition>(DEFAULT_TRANSFORM);
     const [rawDraft, setRawDraft] = useState<string | null>(null);
     const [visualEditorKey, setVisualEditorKey] = useState(0);
@@ -275,10 +287,29 @@ export default function TransformPage() {
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
-        a.download = "transform.json";
+        a.download = `${toSafeFileBaseName(dataToDownload.name)}.json`;
         a.click();
         URL.revokeObjectURL(url);
     }, [rawDraft, transform]);
+
+    const handleUploadTransformFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        event.target.value = "";
+        if (!file) return;
+        try {
+            const content = await file.text();
+            const parsed = JSON.parse(content) as TransformDefinition;
+            if (!parsed || typeof parsed.type !== "string") {
+                throw new Error("Uploaded file is not a valid transform JSON.");
+            }
+            applyTransformChange(parsed, { trackHistory: true, clearDraft: true });
+            setSelectedTransformOption(NEW_TRANSFORM_OPTION);
+            setVisualEditorKey((k) => k + 1);
+            toast.success(`Loaded transform from ${file.name}`);
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : "Failed to load transform file");
+        }
+    }, [applyTransformChange]);
 
     const handleUndoTransform = useCallback(() => {
         if (undoHistory.length === 0) return;
@@ -308,6 +339,15 @@ export default function TransformPage() {
             toast.error("Failed to copy JSON.");
         }
     }, [transformJson]);
+
+    const handleCopyChatMessage = useCallback(async (message: string) => {
+        try {
+            await navigator.clipboard.writeText(message);
+            toast.success("Message copied.");
+        } catch {
+            toast.error("Failed to copy message.");
+        }
+    }, []);
 
     const handleTransformSelection = useCallback(
         (value: string) => {
@@ -490,9 +530,24 @@ export default function TransformPage() {
                                                 : "text-left"
                                         }
                                     >
-                                        <span className="text-xs font-medium text-muted-foreground">
-                                            {m.role}
-                                        </span>
+                                        <div
+                                            className={`flex items-center gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                                        >
+                                            <span className="text-xs font-medium text-muted-foreground">
+                                                {m.role}
+                                            </span>
+                                            {m.role === "assistant" && (
+                                                <Button
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="h-6 px-2 text-xs"
+                                                    onClick={() => handleCopyChatMessage(m.content)}
+                                                >
+                                                    <Copy className="h-3 w-3 mr-1" />
+                                                    Copy
+                                                </Button>
+                                            )}
+                                        </div>
                                         <pre className="mt-0.5 whitespace-pre-wrap break-words rounded bg-background p-2 text-sm">
                                             {m.content}
                                         </pre>
@@ -625,6 +680,16 @@ export default function TransformPage() {
                                         variant="outline"
                                         size="sm"
                                         className="h-8 text-xs"
+                                        onClick={() => uploadFileInputRef.current?.click()}
+                                        disabled={editingDisabled}
+                                    >
+                                        <Upload className="h-3.5 w-3.5 mr-1" />
+                                        Upload
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-8 text-xs"
                                         onClick={handleDownloadTransform}
                                     >
                                         <Download className="h-3.5 w-3.5 mr-1" />
@@ -647,6 +712,13 @@ export default function TransformPage() {
                                     )}
                                 </div>
                             </div>
+                            <input
+                                ref={uploadFileInputRef}
+                                type="file"
+                                accept=".json,.txt,application/json,text/plain"
+                                className="hidden"
+                                onChange={handleUploadTransformFile}
+                            />
                             <Tabs defaultValue="raw" className="flex flex-col flex-1 min-h-0">
                                 <TabsList className="grid w-full grid-cols-2">
                                     <TabsTrigger value="raw">Raw</TabsTrigger>

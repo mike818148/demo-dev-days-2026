@@ -4,6 +4,7 @@ import type { Session } from "next-auth";
 import { SessionProvider } from "next-auth/react";
 import { ThemeProvider } from "@/providers/theme-provider";
 import { UserHeaderWrapper } from "@/components/component/user-header-wrapper";
+import { Toaster } from "@/components/ui/sonner";
 
 export default function Providers({
   children,
@@ -23,6 +24,7 @@ export default function Providers({
         <div className="flex flex-col min-h-screen">
           <UserHeaderWrapper />
           <div className="flex-1 bg-background">{children}</div>
+          <Toaster richColors closeButton />
         </div>
       </ThemeProvider>
     </SessionProvider>
