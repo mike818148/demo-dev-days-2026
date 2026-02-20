@@ -57,6 +57,17 @@ export type TransformDefinition = {
 
 type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 type ListedTransform = TransformDefinition & { id?: string };
+type ChatStreamEvent =
+    | { type: "status"; status: string }
+    | {
+          type: "final";
+          payload: {
+              text: string;
+              responseMessages: Array<{ role: string; content: unknown }>;
+              sandboxId: string;
+          };
+      }
+    | { type: "error"; error: string };
 const NEW_TRANSFORM_OPTION = "__new_transform__";
 const MAX_TRANSFORM_HISTORY = 100;
 
@@ -128,6 +139,7 @@ export default function TransformPage() {
     const [input, setInput] = useState("");
     const [sandboxId, setSandboxId] = useState("");
     const [isLoading, setIsLoading] = useState(false);
+    const [loadingStatus, setLoadingStatus] = useState("Agent is thinking...");
     const [rawJsonError, setRawJsonError] = useState<string | null>(null);
     const [editingDisabled, setEditingDisabled] = useState(false);
     const [saved, setSaved] = useState(false);
@@ -327,6 +339,7 @@ export default function TransformPage() {
         setMessages((prev) => [...prev, userMessage]);
         setInput("");
         setIsLoading(true);
+        setLoadingStatus("Agent is thinking...");
 
         try {
             const apiMessages = [...messages, userMessage].map((m) => ({
@@ -340,6 +353,7 @@ export default function TransformPage() {
                 body: JSON.stringify({
                     sandboxId: sandboxId || undefined,
                     messages: apiMessages,
+                    stream: true,
                     transform: getTransformForAgentContext(),
                 }),
             });
@@ -349,11 +363,53 @@ export default function TransformPage() {
                 throw new Error(err.error || res.statusText);
             }
 
-            const data = (await res.json()) as {
+            if (!res.body) throw new Error("No response stream from chat endpoint");
+            const reader = res.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let streamError: string | null = null;
+            let data: {
                 text: string;
                 responseMessages: Array<{ role: string; content: unknown }>;
                 sandboxId: string;
-            };
+            } | null = null;
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                buffer += decoder.decode(value, { stream: true });
+                let newlineIndex = buffer.indexOf("\n");
+                while (newlineIndex !== -1) {
+                    const line = buffer.slice(0, newlineIndex).trim();
+                    buffer = buffer.slice(newlineIndex + 1);
+                    if (line.length > 0) {
+                        const event = JSON.parse(line) as ChatStreamEvent;
+                        if (event.type === "status") {
+                            setLoadingStatus(event.status);
+                        } else if (event.type === "final") {
+                            data = event.payload;
+                        } else if (event.type === "error") {
+                            streamError = event.error;
+                        }
+                    }
+                    newlineIndex = buffer.indexOf("\n");
+                }
+            }
+
+            const tail = buffer.trim();
+            if (tail.length > 0) {
+                const event = JSON.parse(tail) as ChatStreamEvent;
+                if (event.type === "status") {
+                    setLoadingStatus(event.status);
+                } else if (event.type === "final") {
+                    data = event.payload;
+                } else if (event.type === "error") {
+                    streamError = event.error;
+                }
+            }
+
+            if (streamError) throw new Error(streamError);
+            if (!data) throw new Error("No final response received from agent");
 
             if (data.sandboxId) setSandboxId(data.sandboxId);
 
@@ -371,6 +427,7 @@ export default function TransformPage() {
             setMessages((prev) => prev.slice(0, -1));
         } finally {
             setIsLoading(false);
+            setLoadingStatus("Agent is thinking...");
         }
     };
 
@@ -448,7 +505,7 @@ export default function TransformPage() {
                                         </span>
                                         <div className="mt-0.5 rounded bg-background p-2 text-sm text-muted-foreground flex items-center gap-2">
                                             <span className="inline-block h-2 w-2 rounded-full bg-primary animate-pulse" />
-                                            Agent is thinking...
+                                            {loadingStatus}
                                         </div>
                                     </div>
                                 )}

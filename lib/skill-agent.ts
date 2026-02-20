@@ -1,5 +1,4 @@
 // api/run-agent.ts
-import { Sandbox } from "@vercel/sandbox";
 
 // AI SDK agent imports vary by version; treat this as the pattern.
 import type { AssistantModelMessage, ModelMessage, ToolModelMessage } from "ai";
@@ -20,6 +19,7 @@ Rules:
 
 export type RunTransformAgentParams = {
     sandboxId: string;
+    onStatus?: (status: string) => void;
 } & (
         | { prompt: string; messages?: never }
         | { messages: ModelMessage[]; prompt?: never; system?: string }
@@ -52,19 +52,70 @@ function withLeadingSystemMessage(
 export async function runTransformAgent(
     params: RunTransformAgentParams
 ): Promise<RunTransformAgentResult> {
+    const emitStatus = (status: string) => {
+        params.onStatus?.(status);
+    };
+    const modelName = process.env.TRANSFORM_AGENT_MODEL?.trim() || "gpt-5-mini";
+    const model = openai(modelName);
+    const sailCliEnabled = String(process.env.ENABLE_SAIL_CLI ?? "").toLowerCase() === "true";
+    console.log(
+        `[runTransformAgent] model=${modelName} ENABLE_SAIL_CLI=${sailCliEnabled} -> ${sailCliEnabled ? "sandbox+tools mode" : "skill-only mode"}`
+    );
+
+    const systemPolicy =
+        "system" in params && params.system != null
+            ? params.system
+            : DEFAULT_SYSTEM_POLICY;
+
+    // Non-Sail mode: run skill-only agent (no sandbox/bash tools).
+    if (!sailCliEnabled) {
+        emitStatus("Loading transform skill...");
+        const { experimental_createSkillTool: createSkillTool } = await import("bash-tool");
+        const skillsDirectory = path.join(process.cwd(), "skills", "transform");
+        const { skill } = await createSkillTool({
+            skillsDirectory,
+        });
+
+        const agent = new ToolLoopAgent({
+            model,
+            tools: { skill },
+            stopWhen: stepCountIs(25),
+        });
+
+        emitStatus("Running transform agent...");
+        const result =
+            "messages" in params && params.messages != null && params.messages.length > 0
+                ? await agent.generate({
+                    messages: withLeadingSystemMessage(params.messages, systemPolicy),
+                } as Parameters<typeof agent.generate>[0])
+                : await agent.generate({
+                    system: systemPolicy,
+                    prompt: params.prompt as string,
+                } as Parameters<typeof agent.generate>[0]);
+
+        return {
+            text: result.text,
+            responseMessages: result.response.messages,
+            sandboxId: params.sandboxId || "",
+        };
+    }
+
     // `bash-tool` is ESM-only. When running this file via CJS tooling (common in Node/TS runners),
     // static imports can fail. Use a dynamic import so local scripts can run reliably.
+    emitStatus("Loading Sail CLI tools...");
     const { createBashTool, experimental_createSkillTool: createSkillTool } = await import(
         "bash-tool"
     );
 
     // Reuse existing sandbox if sandboxId is provided (or create new one and use it).
     // Use the same sandboxId for all turns of a conversation so tool state (e.g. transform JSON) persists.
+    emitStatus("Starting sandbox...");
     const sandbox = await createSailCLISandbox({ sandboxId: params.sandboxId });
     const sandboxId = sandbox.sandboxId;
     const existingSandbox = sandbox;
 
     // Load Skills from your local repo and upload to sandbox workspace
+    emitStatus("Loading skills...");
     const skillsDirectory = path.join(process.cwd(), "skills");
     const { skill, files, instructions } = await createSkillTool({
         skillsDirectory,
@@ -73,11 +124,16 @@ export async function runTransformAgent(
     const { SAIL_BASE_URL, SAIL_CLIENT_ID, SAIL_CLIENT_SECRET } = process.env;
 
     // Create bash tool(s) and upload skill files into the sandbox workspace
+    emitStatus("Preparing bash tools...");
     const { tools } = await createBashTool({
         sandbox: existingSandbox,
         files,
         extraInstructions: instructions,
         onBeforeBashCall: ({ command }) => {
+            const oneLineCommand = command.replace(/\s+/g, " ").trim();
+            emitStatus(
+                `Running command: ${oneLineCommand.length > 100 ? `${oneLineCommand.slice(0, 100)}...` : oneLineCommand}`
+            );
             // Ensure Sail env is present for any commands executed by the tool.
             // (bash-tool uses `bash -c` under the hood, so it won't load login shell profiles.)
             const exports: string[] = [
@@ -99,7 +155,7 @@ export async function runTransformAgent(
     // Create agent with BOTH: skill tool + bash tools
     const agent = new ToolLoopAgent({
         // model: openai("gpt-4o-mini"), // example; use your model
-        model: openai("gpt-5"),
+        model,
         tools: {
             skill,
             ...tools, // bash tool(s)
@@ -107,12 +163,7 @@ export async function runTransformAgent(
         stopWhen: stepCountIs(25),
     });
 
-    const systemPolicy =
-        "system" in params && params.system != null
-            ? params.system
-            : DEFAULT_SYSTEM_POLICY;
-
-
+    emitStatus("Running transform agent...");
     const result =
         "messages" in params && params.messages != null && params.messages.length > 0
             ? await agent.generate({

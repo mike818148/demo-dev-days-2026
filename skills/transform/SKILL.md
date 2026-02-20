@@ -260,8 +260,9 @@ For **per-operation** syntax, attributes, and examples, use the markdown files i
 
 ## Create, modify, delete, get, list and test transforms
 
-For **creating**, **modifying**, **deleting**, and **testing** transforms in a tenant (e.g. `sail transform create`, `sail transform update`, `sail transform delete`, `sail transform preview`), use the **sail-cli** skill:
+For tenant operations (for example: `sail transform create`, `sail transform update`, `sail transform delete`, `sail transform get`, `sail transform list`, `sail transform preview`), follow mode-specific behavior:
 
-- **sail-cli skill**: `skills/sail-cli/SKILL.md`
+- If `ENABLE_SAIL_CLI=true`: use the **sail-cli** skill at `skills/sail-cli/SKILL.md`.
+- If `ENABLE_SAIL_CLI=false`: do not run tenant commands. Limit work to drafting, revising, and validating Transform JSON content only.
 
-That skill defines the safe workflow (draft → preview → explicit approval → apply), directory conventions, and exact CLI commands. This transform design skill focuses only on **how to write and structure** the Transform JSON.
+The `sail-cli` skill defines the safe workflow (draft -> preview -> explicit approval -> apply), directory conventions, and exact CLI commands. This transform design skill focuses on how to write and structure Transform JSON.
