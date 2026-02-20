@@ -28,6 +28,8 @@ import {
   SodPolicyRead,
   RequestedItemDtoRef,
   RequestedItemDtoRefTypeV3,
+  TransformsApi,
+  TransformRead,
 } from "sailpoint-api-client";
 import { createMCPClient } from "@ai-sdk/mcp";
 import { openai } from "@ai-sdk/openai";
@@ -994,4 +996,23 @@ Identity Details:
 
 export async function isOpenAIAvailable(): Promise<boolean> {
   return !!process.env.OPENAI_API_KEY;
+}
+
+export async function listTransforms(): Promise<{ transforms: TransformRead[] } | { error: string }> {
+  const session = await getServerSession(authOptions);
+  if (!session?.accessToken) {
+    return { error: "Authentication required" };
+  }
+  const configurationParams: ConfigurationParameters = {
+    baseurl: process.env.ISC_BASE_API_URL,
+    accessToken: session.accessToken,
+  };
+  const apiConfig = new Configuration(configurationParams);
+  const api = new TransformsApi(apiConfig);
+  const result = await api.listTransforms();
+  if (result.status === 200) {
+    return { transforms: result.data || [] };
+  } else {
+    return { error: "Failed to list transforms" };
+  }
 }

@@ -148,6 +148,20 @@ export function UserHeader({ name, email }: UserHeaderProps) {
         <NavigationMenu>
           <NavigationMenuList>
             <NavigationMenuItem>
+              <NavigationMenuLink asChild>
+                <Link
+                  href="/transform"
+                  className="block select-none rounded-md px-4 py-2 leading-none no-underline outline-none transition-colors hover:bg-primary/90 hover:text-primary-foreground focus:bg-primary/90 focus:text-primary-foreground text-primary-foreground"
+                >
+                  Transform
+                </Link>
+              </NavigationMenuLink>
+            </NavigationMenuItem>
+          </NavigationMenuList>
+        </NavigationMenu>
+        <NavigationMenu>
+          <NavigationMenuList>
+            <NavigationMenuItem>
               <NavigationMenuTrigger className="text-primary-foreground hover:text-primary/80 hover:bg-transparent data-[state=open]:bg-transparent data-[state=open]:text-primary/80 bg-transparent">
                 Non-Employee Management
               </NavigationMenuTrigger>
