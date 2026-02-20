@@ -6,6 +6,7 @@ import type { AssistantModelMessage, ModelMessage, ToolModelMessage } from "ai";
 import { ToolLoopAgent, stepCountIs } from "ai";
 import { createSailCLISandbox } from "@/sandbox/sandbox";
 import { openai } from "@ai-sdk/openai";
+import path from "node:path";
 
 export const DEFAULT_SYSTEM_POLICY = `
 You are operating in a sandbox with SailPoint CLI and a Transform Skill.
@@ -64,8 +65,9 @@ export async function runTransformAgent(
     const existingSandbox = sandbox;
 
     // Load Skills from your local repo and upload to sandbox workspace
+    const skillsDirectory = path.join(process.cwd(), "skills");
     const { skill, files, instructions } = await createSkillTool({
-        skillsDirectory: "./skills",
+        skillsDirectory,
     });
 
     const { SAIL_BASE_URL, SAIL_CLIENT_ID, SAIL_CLIENT_SECRET } = process.env;
