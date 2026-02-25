@@ -19,12 +19,25 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertTriangle, Check, Copy, Download, Eye, EyeOff, Redo2, Save, Undo2, Upload } from "lucide-react";
+import {
+    Tooltip,
+    TooltipContent,
+    TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from "@/components/ui/dialog";
+import { AlertTriangle, Bot, Check, ChevronDown, ChevronRight, Copy, Download, Eye, EyeOff, GripHorizontal, Redo2, Save, Undo2, Upload, User } from "lucide-react";
 import dynamic from "next/dynamic";
 import Prism from "prismjs";
 import "prismjs/components/prism-json";
 import Editor from "react-simple-code-editor";
-import { useState, useCallback, useEffect, useRef, type ChangeEvent } from "react";
+import React, { useState, useCallback, useEffect, useRef, type ChangeEvent } from "react";
 import { toast } from "sonner";
 
 const TRANSFORM_TYPES = [
@@ -57,6 +70,7 @@ export type TransformDefinition = {
 
 type ChatMessage = { role: "user" | "assistant" | "system"; content: string };
 type ListedTransform = TransformDefinition & { id?: string };
+type TransformCandidateOption = { id: string; json: string; parsed: TransformDefinition };
 type ChatStreamEvent =
     | { type: "status"; status: string }
     | {
@@ -70,6 +84,14 @@ type ChatStreamEvent =
     | { type: "error"; error: string };
 const NEW_TRANSFORM_OPTION = "__new_transform__";
 const MAX_TRANSFORM_HISTORY = 100;
+const MIN_INPUT_HEIGHT = 56;
+const MAX_INPUT_HEIGHT = 224;
+
+type UiSkillInfo = {
+    id: string;
+    name: string;
+    description?: string;
+};
 
 function toSafeFileBaseName(name?: string): string {
     const fallback = "transform";
@@ -115,30 +137,66 @@ function getMessageContent(content: unknown): string {
     return String(content ?? "");
 }
 
-/** Extract a transform JSON block from assistant message text (e.g. ```json ... ``` or { ... }). */
-function extractTransformJsonFromMessage(text: string): string | null {
+/** Extract transform JSON blocks from assistant message text. */
+function extractTransformJsonCandidates(text: string): string[] {
     const trimmed = text.trim();
-    const jsonBlock = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/);
-    if (jsonBlock) {
-        const candidate = jsonBlock[1].trim();
-        if (candidate.startsWith("{")) return candidate;
+    const candidates: string[] = [];
+
+    // Prefer fenced JSON blocks when present.
+    const fencedBlockRegex = /```(?:json)?\s*([\s\S]*?)```/g;
+    let fencedMatch: RegExpExecArray | null;
+    while ((fencedMatch = fencedBlockRegex.exec(trimmed)) !== null) {
+        const candidate = fencedMatch[1].trim();
+        if (candidate.startsWith("{") && candidate.endsWith("}")) {
+            candidates.push(candidate);
+        }
     }
-    const firstBrace = trimmed.indexOf("{");
-    if (firstBrace === -1) return null;
-    let depth = 0;
-    let end = -1;
-    for (let i = firstBrace; i < trimmed.length; i++) {
-        if (trimmed[i] === "{") depth++;
-        else if (trimmed[i] === "}") {
-            depth--;
-            if (depth === 0) {
-                end = i;
-                break;
+
+    // Fallback: collect balanced top-level JSON objects in plain text.
+    if (candidates.length === 0) {
+        let depth = 0;
+        let start = -1;
+        let inString = false;
+        let escaping = false;
+
+        for (let i = 0; i < trimmed.length; i++) {
+            const char = trimmed[i];
+
+            if (inString) {
+                if (escaping) {
+                    escaping = false;
+                    continue;
+                }
+                if (char === "\\") {
+                    escaping = true;
+                    continue;
+                }
+                if (char === "\"") {
+                    inString = false;
+                }
+                continue;
+            }
+
+            if (char === "\"") {
+                inString = true;
+                continue;
+            }
+
+            if (char === "{") {
+                if (depth === 0) start = i;
+                depth++;
+            } else if (char === "}") {
+                if (depth === 0) continue;
+                depth--;
+                if (depth === 0 && start >= 0) {
+                    candidates.push(trimmed.slice(start, i + 1));
+                    start = -1;
+                }
             }
         }
     }
-    if (end === -1) return null;
-    return trimmed.slice(firstBrace, end + 1);
+
+    return Array.from(new Set(candidates));
 }
 
 export default function TransformPage() {
@@ -159,6 +217,13 @@ export default function TransformPage() {
     const [selectedTransformOption, setSelectedTransformOption] = useState(NEW_TRANSFORM_OPTION);
     const [undoHistory, setUndoHistory] = useState<TransformDefinition[]>([]);
     const [redoHistory, setRedoHistory] = useState<TransformDefinition[]>([]);
+    const [skills, setSkills] = useState<UiSkillInfo[]>([]);
+    const [sailCliEnabled, setSailCliEnabled] = useState<boolean | null>(null);
+    const [skillsOpen, setSkillsOpen] = useState(false);
+    const [inputHeight, setInputHeight] = useState(MIN_INPUT_HEIGHT);
+    const [transformPickerOpen, setTransformPickerOpen] = useState(false);
+    const [transformCandidateOptions, setTransformCandidateOptions] = useState<TransformCandidateOption[]>([]);
+    const [selectedCandidateId, setSelectedCandidateId] = useState("");
 
     const transformJson = rawDraft !== null ? rawDraft : JSON.stringify(transform, null, 2);
     const serializeTransform = useCallback(
@@ -259,6 +324,32 @@ export default function TransformPage() {
         };
     }, []);
 
+    useEffect(() => {
+        let cancelled = false;
+        const loadSkills = async () => {
+            try {
+                const res = await fetch("/api/skills");
+                if (!res.ok) {
+                    throw new Error("Failed to load skills");
+                }
+                const data = (await res.json()) as { skills?: UiSkillInfo[]; sailCliEnabled?: boolean };
+                if (cancelled) return;
+                setSkills(Array.isArray(data.skills) ? data.skills : []);
+                if (typeof data.sailCliEnabled === "boolean") {
+                    setSailCliEnabled(data.sailCliEnabled);
+                }
+            } catch (e) {
+                if (!cancelled) {
+                    console.error(e);
+                }
+            }
+        };
+        loadSkills();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+
     const handleSaveEditor = useCallback(() => {
         if (rawDraft != null) {
             const ok = commitRawToTransform(rawDraft);
@@ -348,6 +439,67 @@ export default function TransformPage() {
             toast.error("Failed to copy message.");
         }
     }, []);
+
+    const applyTransformToEditor = useCallback((parsed: TransformDefinition) => {
+        applyTransformChange(parsed, { trackHistory: true, clearDraft: true });
+        setVisualEditorKey((k) => k + 1);
+        toast.success("Applied to editor");
+    }, [applyTransformChange]);
+
+    const handleApplyAssistantMessageToEditor = useCallback((assistantContent: string) => {
+        const options = extractTransformJsonCandidates(assistantContent)
+            .map((json, idx): TransformCandidateOption | null => {
+                try {
+                    const parsed = JSON.parse(json) as TransformDefinition;
+                    if (typeof parsed.type !== "string") return null;
+                    return {
+                        id: `${idx}`,
+                        json,
+                        parsed,
+                    };
+                } catch {
+                    return null;
+                }
+            })
+            .filter((candidate): candidate is TransformCandidateOption => candidate !== null);
+
+        if (options.length === 0) {
+            toast.error("No valid transform JSON found in assistant reply");
+            return;
+        }
+
+        if (options.length === 1) {
+            applyTransformToEditor(options[0].parsed);
+            return;
+        }
+
+        setTransformCandidateOptions(options);
+        setSelectedCandidateId(options[0].id);
+        setTransformPickerOpen(true);
+    }, [applyTransformToEditor]);
+
+    const handleInputResizeStart = useCallback((event: React.MouseEvent<HTMLButtonElement>) => {
+        event.preventDefault();
+        const startY = event.clientY;
+        const startHeight = inputHeight;
+
+        const onMouseMove = (moveEvent: MouseEvent) => {
+            const deltaY = moveEvent.clientY - startY;
+            const nextHeight = Math.max(
+                MIN_INPUT_HEIGHT,
+                Math.min(MAX_INPUT_HEIGHT, startHeight - deltaY)
+            );
+            setInputHeight(nextHeight);
+        };
+
+        const onMouseUp = () => {
+            window.removeEventListener("mousemove", onMouseMove);
+            window.removeEventListener("mouseup", onMouseUp);
+        };
+
+        window.addEventListener("mousemove", onMouseMove);
+        window.addEventListener("mouseup", onMouseUp);
+    }, [inputHeight]);
 
     const handleTransformSelection = useCallback(
         (value: string) => {
@@ -471,28 +623,6 @@ export default function TransformPage() {
         }
     };
 
-    const handleApplyLastAssistantToEditor = () => {
-        const lastAssistant = [...messages].reverse().find((m) => m.role === "assistant");
-        if (!lastAssistant?.content) {
-            toast.error("No assistant message to apply");
-            return;
-        }
-        const jsonStr = extractTransformJsonFromMessage(lastAssistant.content);
-        if (!jsonStr) {
-            toast.error("No transform JSON found in last assistant reply");
-            return;
-        }
-        try {
-            const parsed = JSON.parse(jsonStr) as TransformDefinition;
-            if (typeof parsed.type !== "string") throw new Error("Not a valid transform");
-            applyTransformChange(parsed, { trackHistory: true, clearDraft: true });
-            setVisualEditorKey((k) => k + 1);
-            toast.success("Applied to editor");
-        } catch {
-            toast.error("Extracted block is not valid transform JSON");
-        }
-    };
-
     const handleVisualTransformChange = useCallback((t: TransformDefinition) => {
         const shouldTrackHistory = !skipNextVisualHistoryRef.current;
         if (skipNextVisualHistoryRef.current) {
@@ -507,11 +637,81 @@ export default function TransformPage() {
                 {/* Left: Chat */}
                 <ResizablePanel defaultSize={45} minSize={25} className="flex flex-col min-w-0">
                     <Card className="flex flex-col flex-1 min-h-0">
-                        <CardHeader className="flex-shrink-0">
-                            <CardTitle>Transform assistant</CardTitle>
-                            <p className="text-sm text-muted-foreground">
-                                Chat with the agent. Same sandbox and transform context.
-                            </p>
+                        <CardHeader className="flex-shrink-0 space-y-2">
+                            <div className="flex flex-col gap-1">
+                                <CardTitle>Transform assistant</CardTitle>
+                                <p className="text-sm text-muted-foreground">
+                                    Chat with the agent. Same sandbox and transform context.
+                                </p>
+                            </div>
+                            <div className="rounded-md border bg-muted/30">
+                                <button
+                                    type="button"
+                                    onClick={() => setSkillsOpen((open) => !open)}
+                                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-[11px] font-medium text-muted-foreground hover:bg-muted/50 transition-colors rounded-md"
+                                >
+                                    {skillsOpen ? (
+                                        <ChevronDown className="h-3.5 w-3.5 shrink-0" />
+                                    ) : (
+                                        <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                                    )}
+                                    <span>Skills</span>
+                                    {skills.length > 0 && (
+                                        <span className="text-muted-foreground/70">
+                                            ({skills.length} granted)
+                                        </span>
+                                    )}
+                                    {sailCliEnabled !== null && (
+                                        <span className="ml-auto inline-flex items-center rounded-full px-2 py-0.5 text-[10px] border bg-background">
+                                            <span className="font-semibold mr-1">Sail CLI</span>
+                                            <span
+                                                className={
+                                                    sailCliEnabled
+                                                        ? "text-emerald-600"
+                                                        : "text-muted-foreground"
+                                                }
+                                            >
+                                                {sailCliEnabled ? "enabled" : "disabled"}
+                                            </span>
+                                        </span>
+                                    )}
+                                </button>
+                                {skillsOpen && (
+                                    <div className="flex flex-wrap items-center gap-2 px-3 pb-3 pt-2 text-[10px] text-muted-foreground border-t border-border/50">
+                                        {skills.length === 0 ? (
+                                            <span className="italic text-muted-foreground/70">
+                                                Detecting local skills...
+                                            </span>
+                                        ) : (
+                                            skills.map((s) => {
+                                                const tag = (
+                                                    <span
+                                                        key={s.id}
+                                                        className="inline-flex items-center rounded-full border bg-background px-2 py-0.5 text-[10px]"
+                                                    >
+                                                        <span className="font-medium text-[10px]">
+                                                            {s.name}
+                                                        </span>
+                                                    </span>
+                                                );
+                                                if (s.description) {
+                                                    return (
+                                                        <Tooltip key={s.id}>
+                                                            <TooltipTrigger asChild>
+                                                                {tag}
+                                                            </TooltipTrigger>
+                                                            <TooltipContent side="top" className="max-w-xs text-xs">
+                                                                {s.description}
+                                                            </TooltipContent>
+                                                        </Tooltip>
+                                                    );
+                                                }
+                                                return <React.Fragment key={s.id}>{tag}</React.Fragment>;
+                                            })
+                                        )}
+                                    </div>
+                                )}
+                            </div>
                         </CardHeader>
                         <CardContent className="flex flex-col flex-1 min-h-0 gap-3 p-4 pt-0">
                             <div className="flex-1 overflow-y-auto rounded border bg-muted/30 p-3 space-y-2 min-h-[120px]">
@@ -524,19 +724,28 @@ export default function TransformPage() {
                                 {messages.map((m, i) => (
                                     <div
                                         key={i}
-                                        className={
-                                            m.role === "user"
-                                                ? "text-right"
-                                                : "text-left"
-                                        }
+                                        className="text-left"
                                     >
                                         <div
-                                            className={`flex items-center gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                                            className={`group rounded-md ${m.role === "user" ? "ml-4 mr-8" : "mr-8"}`}
                                         >
-                                            <span className="text-xs font-medium text-muted-foreground">
-                                                {m.role}
-                                            </span>
-                                            {m.role === "assistant" && (
+                                            <div
+                                                className={`flex items-center gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`}
+                                            >
+                                                {m.role === "assistant" && (
+                                                    <Bot className="h-3.5 w-3.5 text-muted-foreground" />
+                                                )}
+                                                {m.role === "user" && (
+                                                    <User className="h-3.5 w-3.5 text-muted-foreground" />
+                                                )}
+                                                <span className="text-xs font-medium text-muted-foreground">
+                                                    {m.role}
+                                                </span>
+                                            </div>
+                                            <pre className="mt-0.5 whitespace-pre-wrap break-words rounded bg-background p-2 text-sm">
+                                                {m.content}
+                                            </pre>
+                                            <div className="mt-1 flex items-center gap-1 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
                                                 <Button
                                                     variant="ghost"
                                                     size="sm"
@@ -546,11 +755,18 @@ export default function TransformPage() {
                                                     <Copy className="h-3 w-3 mr-1" />
                                                     Copy
                                                 </Button>
-                                            )}
+                                                {m.role === "assistant" && (
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        className="h-6 px-2 text-xs"
+                                                        onClick={() => handleApplyAssistantMessageToEditor(m.content)}
+                                                    >
+                                                        Apply to editor
+                                                    </Button>
+                                                )}
+                                            </div>
                                         </div>
-                                        <pre className="mt-0.5 whitespace-pre-wrap break-words rounded bg-background p-2 text-sm">
-                                            {m.content}
-                                        </pre>
                                     </div>
                                 ))}
                                 {isLoading && (
@@ -566,33 +782,35 @@ export default function TransformPage() {
                                 )}
                             </div>
                             <div className="flex flex-shrink-0 gap-2">
-                                <Textarea
-                                    placeholder="Message..."
-                                    value={input}
-                                    onChange={(e) => setInput(e.target.value)}
-                                    onKeyDown={(e) => {
-                                        if (e.key === "Enter" && !e.shiftKey) {
-                                            e.preventDefault();
-                                            handleSendMessage();
-                                        }
-                                    }}
-                                    rows={2}
-                                    className="min-h-0 resize-none"
-                                />
+                                <div className="relative flex-1">
+                                    <button
+                                        type="button"
+                                        onMouseDown={handleInputResizeStart}
+                                        aria-label="Resize message input"
+                                        className="absolute right-2 top-1 z-10 inline-flex h-5 w-5 items-center justify-center rounded text-muted-foreground/80 hover:bg-muted hover:text-foreground cursor-ns-resize"
+                                    >
+                                        <GripHorizontal className="h-3.5 w-3.5" />
+                                    </button>
+                                    <Textarea
+                                        placeholder="Message..."
+                                        value={input}
+                                        onChange={(e) => setInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter" && !e.shiftKey) {
+                                                e.preventDefault();
+                                                handleSendMessage();
+                                            }
+                                        }}
+                                        rows={2}
+                                        style={{ height: `${inputHeight}px` }}
+                                        className="min-h-[56px] max-h-56 resize-none pt-7"
+                                    />
+                                </div>
                                 <Button
                                     onClick={handleSendMessage}
                                     disabled={isLoading || !input.trim()}
                                 >
                                     {isLoading ? "..." : "Send"}
-                                </Button>
-                            </div>
-                            <div className="flex flex-wrap gap-2 flex-shrink-0">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={handleApplyLastAssistantToEditor}
-                                >
-                                    Apply last assistant reply to editor
                                 </Button>
                             </div>
                         </CardContent>
@@ -785,6 +1003,63 @@ export default function TransformPage() {
                     </Card>
                 </ResizablePanel>
             </ResizablePanelGroup>
+            <Dialog open={transformPickerOpen} onOpenChange={setTransformPickerOpen}>
+                <DialogContent className="max-w-2xl">
+                    <DialogHeader>
+                        <DialogTitle>Select transform to apply</DialogTitle>
+                        <DialogDescription>
+                            This assistant reply contains multiple transform JSON blocks.
+                            Choose which one to apply to the editor.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <div className="max-h-[50vh] overflow-y-auto space-y-2">
+                        {transformCandidateOptions.map((candidate, idx) => (
+                            <button
+                                key={candidate.id}
+                                type="button"
+                                onClick={() => setSelectedCandidateId(candidate.id)}
+                                className={`w-full rounded-md border p-3 text-left transition-colors ${selectedCandidateId === candidate.id ? "border-primary bg-primary/5" : "hover:bg-muted/30"}`}
+                            >
+                                <div className="text-xs font-medium text-muted-foreground">
+                                    Option {idx + 1}
+                                </div>
+                                <div className="mt-0.5 text-sm">
+                                    <span className="font-medium">name:</span>{" "}
+                                    {candidate.parsed.name || "(unnamed)"}{" "}
+                                    <span className="mx-2 text-muted-foreground">|</span>
+                                    <span className="font-medium">type:</span> {candidate.parsed.type}
+                                </div>
+                                <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-muted/30 p-2 text-xs">
+                                    {candidate.json}
+                                </pre>
+                            </button>
+                        ))}
+                    </div>
+                    <DialogFooter>
+                        <Button
+                            variant="outline"
+                            onClick={() => setTransformPickerOpen(false)}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={() => {
+                                const selected = transformCandidateOptions.find(
+                                    (candidate) => candidate.id === selectedCandidateId
+                                );
+                                if (!selected) {
+                                    toast.error("Please select a transform");
+                                    return;
+                                }
+                                applyTransformToEditor(selected.parsed);
+                                setTransformPickerOpen(false);
+                            }}
+                        >
+                            Apply selected
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }

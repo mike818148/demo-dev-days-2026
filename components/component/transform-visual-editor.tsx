@@ -142,6 +142,20 @@ function StepEditorFormContent({ rootStepIds }: { rootStepIds: Set<string> }) {
           </div>
         </>
       )}
+      {step.type === "identityAttribute" && (
+        <div className="space-y-2">
+          <Label>Attribute Name</Label>
+          <Input
+            value={String((step.properties as Record<string, unknown>).name ?? "")}
+            onChange={(e) => {
+              stepEditor.setProperty("name", e.target.value);
+              stepEditor.notifyPropertiesChanged();
+              stepEditor.notifyChildrenChanged();
+            }}
+            placeholder="e.g. preferredName"
+          />
+        </div>
+      )}
       {step.type === "reference" && (
         <div className="space-y-2">
           <Label>Transform ID</Label>

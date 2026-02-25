@@ -38,6 +38,27 @@ function isSandboxStoppedError(err: unknown): boolean {
     );
 }
 
+function getMessageText(content: unknown): string {
+    if (typeof content === "string") return content;
+    if (Array.isArray(content)) {
+        return content
+            .filter((part) => typeof part === "object" && part != null)
+            .map((part) => {
+                const p = part as { type?: string; text?: unknown };
+                if (p.type === "text" && typeof p.text === "string") return p.text;
+                return "";
+            })
+            .join("");
+    }
+    return String(content ?? "");
+}
+
+function containsDisallowedScriptType(response: ChatResponseBody): boolean {
+    return response.responseMessages
+        .filter((m) => m.role === "assistant")
+        .some((m) => /"type"\s*:\s*"script"/i.test(getMessageText(m.content)));
+}
+
 export async function POST(req: Request) {
     let body: ChatRequestBody;
     try {
@@ -64,15 +85,17 @@ export async function POST(req: Request) {
             ? `${baseSystem}\n\nCurrent transform (JSON) — the user is editing this in the UI. Use it as context when suggesting changes:\n\`\`\`json\n${JSON.stringify(transform, null, 2)}\n\`\`\``
             : baseSystem;
 
-    const runAgentWithRetry = async (
+    const runOnceWithSandboxRetry = async (
+        sandboxIdToUse: string,
+        systemPrompt: string,
         onStatus?: (status: string) => void
     ): Promise<ChatResponseBody> => {
         let result;
         try {
             result = await runTransformAgent({
-                sandboxId,
+                sandboxId: sandboxIdToUse,
                 messages,
-                system: systemWithTransform,
+                system: systemPrompt,
                 onStatus,
             });
         } catch (err) {
@@ -81,12 +104,12 @@ export async function POST(req: Request) {
             onStatus?.("Sandbox stopped, retrying with a fresh sandbox...");
             console.warn(
                 "[POST /api/chat] Sandbox stopped during run; retrying once with a fresh sandbox.",
-                { sandboxId }
+                { sandboxId: sandboxIdToUse }
             );
             result = await runTransformAgent({
                 sandboxId: "",
                 messages,
-                system: systemWithTransform,
+                system: systemPrompt,
                 onStatus,
             });
         }
@@ -99,6 +122,36 @@ export async function POST(req: Request) {
             }>,
             sandboxId: result.sandboxId,
         };
+    };
+
+    const runAgentWithRetry = async (
+        onStatus?: (status: string) => void
+    ): Promise<ChatResponseBody> => {
+        let response = await runOnceWithSandboxRetry(sandboxId, systemWithTransform, onStatus);
+        if (!containsDisallowedScriptType(response)) {
+            return response;
+        }
+
+        onStatus?.(
+            'Detected disallowed transform type "script". Retrying with stricter constraints...'
+        );
+        const strictSystem = `${systemWithTransform}
+
+Hard constraint:
+- Never output a transform with "type": "script".
+- Use documented transform operations only.`;
+
+        response = await runOnceWithSandboxRetry(
+            response.sandboxId || sandboxId,
+            strictSystem,
+            onStatus
+        );
+        if (containsDisallowedScriptType(response)) {
+            throw new Error(
+                'Agent returned disallowed transform type "script". Please retry with a narrower prompt.'
+            );
+        }
+        return response;
     };
 
     if (!stream) {

@@ -14,8 +14,63 @@ export type TransformDefinition = {
 const STEP_COMPONENT_SWITCH = "switch";
 const STEP_COMPONENT_TASK = "task";
 const BRANCH_KINDS_KEY = "__designerBranchKinds";
+const LITERAL_VALUE_KEY = "__designerLiteralValue";
+const LITERAL_NODE_KEY = "__designerLiteralNode";
 
 type BranchKinds = Record<string, "single" | "array">;
+
+function isPrimitiveLiteral(value: unknown): value is string | number | boolean | null {
+  return (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "boolean"
+  );
+}
+
+function isBranchDisplayableArray(value: unknown): value is Array<unknown> {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every((item) => isTransformLike(item) || isPrimitiveLiteral(item))
+  );
+}
+
+function literalToStep(value: string | number | boolean | null): Step {
+  const preview =
+    typeof value === "string"
+      ? `"${value}"`
+      : value === null
+        ? "null"
+        : String(value);
+  return {
+    id: nextId(),
+    componentType: STEP_COMPONENT_TASK,
+    type: "static",
+    name: `Literal: ${preview}`,
+    properties: {
+      value: typeof value === "string" ? value : String(value),
+      [LITERAL_NODE_KEY]: true,
+      [LITERAL_VALUE_KEY]: value,
+    } as Properties,
+  };
+}
+
+function getStepDisplayName(data: TransformDefinition, attrs: Record<string, unknown>): string {
+  if (data.type === "identityAttribute") {
+    const attributeName = attrs.name;
+    if (typeof attributeName === "string" && attributeName.trim().length > 0) {
+      return `identityAttribute: ${attributeName}`;
+    }
+  }
+
+  if (typeof data.name === "string" && data.name.trim().length > 0) {
+    return data.name;
+  }
+
+
+  return data.type;
+}
 
 function isTransformLike(value: unknown): value is TransformDefinition {
   return (
@@ -54,8 +109,13 @@ export function transformToStep(data: TransformDefinition): Step {
       continue;
     }
 
-    if (Array.isArray(value) && value.length > 0 && value.every(isTransformLike)) {
-      branches[key] = value.map((item) => transformToStep(item));
+    if (isBranchDisplayableArray(value)) {
+      branches[key] = value.map((item) => {
+        if (isTransformLike(item)) return transformToStep(item);
+        if (isPrimitiveLiteral(item)) return literalToStep(item);
+        // Guard for TypeScript exhaustiveness; array predicate should already prevent this path.
+        return literalToStep(String(item));
+      });
       branchKinds[key] = "array";
       delete properties[key];
     }
@@ -70,7 +130,7 @@ export function transformToStep(data: TransformDefinition): Step {
     id: nextId(),
     componentType: hasBranches ? STEP_COMPONENT_SWITCH : STEP_COMPONENT_TASK,
     type: data.type,
-    name: (data.name as string) || data.type,
+    name: getStepDisplayName(data, attrs),
     properties: properties as Properties,
   };
 
@@ -84,8 +144,18 @@ export function transformToStep(data: TransformDefinition): Step {
 /** Designer Step -> SailPoint transform */
 export function stepToTransform(step: Step): TransformDefinition {
   const attrs: Record<string, unknown> = { ...step.properties };
+  delete attrs[LITERAL_NODE_KEY];
+  delete attrs[LITERAL_VALUE_KEY];
   const branchKinds = (attrs[BRANCH_KINDS_KEY] as BranchKinds | undefined) ?? {};
   delete attrs[BRANCH_KINDS_KEY];
+
+  const toBranchValue = (childStep: Step): unknown => {
+    const childProps = (childStep.properties ?? {}) as Record<string, unknown>;
+    if (childProps[LITERAL_NODE_KEY] === true && LITERAL_VALUE_KEY in childProps) {
+      return childProps[LITERAL_VALUE_KEY];
+    }
+    return stepToTransform(childStep);
+  };
 
   const branched = step as Step & { branches?: Branches };
   if (branched.branches) {
@@ -95,9 +165,9 @@ export function stepToTransform(step: Step): TransformDefinition {
         branchKinds[branchName] ??
         (branchName === "input" ? "single" : sequence.length > 1 ? "array" : "single");
       if (kind === "array") {
-        attrs[branchName] = sequence.map((s) => stepToTransform(s));
+        attrs[branchName] = sequence.map((s) => toBranchValue(s));
       } else {
-        attrs[branchName] = stepToTransform(sequence[0]);
+        attrs[branchName] = toBranchValue(sequence[0]);
       }
     }
   }

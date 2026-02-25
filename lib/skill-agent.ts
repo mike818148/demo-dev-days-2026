@@ -8,14 +8,49 @@ import { openai } from "@ai-sdk/openai";
 import path from "node:path";
 
 export const DEFAULT_SYSTEM_POLICY = `
-You are operating in a sandbox with SailPoint CLI and a Transform Skill.
+You are a Transform assistant for SailPoint Identity Security Cloud (ISC).
 
-Rules:
-- Always produce or modify Transform JSON locally first.
-- Use preview to validate when possible.
-- NEVER run create/update/delete unless the user explicitly says: apply/save/deploy/delete.
-- If the user asks for changes, iterate on the JSON, then preview again.
+- You always work from Transform JSON first.
+- You have access to local Transform skills (design guidance and operations docs).
+- You must use the skill guidance for transform design decisions.
+
+Base safety rules (apply in all modes):
+- Always draft or modify Transform JSON locally before suggesting any tenant changes.
+- Prefer small, composable transforms over large, complex ones.
+- Explain what you are doing in terms of transform types and attributes.
+- Never propose or output a transform with type "script".
+- Do not invent transform types that are not documented by available skills/docs.
 `.trim();
+
+export function buildSystemPolicyForSailCli(
+    isSailCliEnabled: boolean,
+    baseSystemOverride?: string
+): string {
+    const header = (baseSystemOverride ?? DEFAULT_SYSTEM_POLICY).trimEnd();
+
+    if (!isSailCliEnabled) {
+        return (
+            header +
+            `
+
+Sail CLI mode: DISABLED
+- Do not run any tenant commands (no sail transform ...).
+- Focus on designing, validating, and revising Transform JSON only.
+- When you suggest CLI usage, describe the commands but do not execute them.
+- Always derive transform structure from local skills and operations docs only.`
+        );
+    }
+
+    return (
+        header +
+        `
+
+Sail CLI mode: ENABLED
+- You may use the Sail CLI Transform skill to run safe sail transform commands inside the sandbox.
+- Always follow the draft → preview → explicit approval → apply workflow from the Sail CLI skill.
+- Never run create/update/delete unless the user explicitly says: apply / save / deploy / delete.`
+    );
+}
 
 export type RunTransformAgentParams = {
     sandboxId: string;
@@ -65,6 +100,7 @@ async function getNonSailTransformTools(): Promise<{
 
     nonSailTransformToolsPromise = (async () => {
         const { experimental_createSkillTool: createSkillTool } = await import("bash-tool");
+        // In non-SAIL mode, load only local design skills (exclude sail-cli-transform).
         const skillsDirectory = path.join(process.cwd(), "skills", "transform");
         const { skill } = await createSkillTool({
             skillsDirectory,
@@ -91,21 +127,21 @@ export async function runTransformAgent(
     const emitStatus = (status: string) => {
         params.onStatus?.(status);
     };
-    const modelName = process.env.TRANSFORM_AGENT_MODEL?.trim() || "gpt-5-mini";
+    const modelName = process.env.TRANSFORM_AGENT_MODEL?.trim() || "gpt-5";
     const model = openai(modelName);
     const sailCliEnabled = String(process.env.ENABLE_SAIL_CLI ?? "").toLowerCase() === "true";
     console.log(
         `[runTransformAgent] model=${modelName} ENABLE_SAIL_CLI=${sailCliEnabled} -> ${sailCliEnabled ? "sandbox+tools mode" : "skill-only mode"}`
     );
 
-    const systemPolicy =
-        "system" in params && params.system != null
-            ? params.system
-            : DEFAULT_SYSTEM_POLICY;
+    const systemPolicy = buildSystemPolicyForSailCli(
+        sailCliEnabled,
+        "system" in params && params.system != null ? params.system : undefined
+    );
 
     // Non-Sail mode: run skill-only agent (no sandbox/bash tools).
     if (!sailCliEnabled) {
-        emitStatus("Loading transform skill...");
+        emitStatus("Loading local transform skills...");
         const { tools, fromCache } = await getNonSailTransformTools();
         if (fromCache) emitStatus("Using cached transform skill...");
 

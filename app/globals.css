@@ -130,10 +130,6 @@
   display: none !important;
 }
 
-/* Hide toolbox in visual editor (graph-focused view) */
-.transform-visual-editor-wrapper .sqd-toolbox {
-  display: none !important;
-}
 .transform-visual-editor-wrapper .sqd-toolbox .sqd-scrollbox {
   flex: 1;
   min-height: 0;

@@ -902,7 +902,7 @@ export async function resolvePolicyViolationWithAI(policy: SodPolicyRead, identi
 
     console.log("[resolvePolicyViolationWithAI] Calling AI model to resolve violation...");
     const response = await generateText({
-      model: openai("gpt-5"),
+      model: openai("gpt-5-mini"),
       tools: availableTools,
       // Allow multi-step tool use (e.g. search-access -> create-access-request)
       stopWhen: stepCountIs(8),
@@ -969,7 +969,7 @@ Identity Details:
     console.log("[resolvePolicyViolationWithAI] Resolution completed successfully, response.toolResults:", JSON.stringify(response.toolResults, null, 2));
 
     const summary = await generateText({
-      model: openai("gpt-5"),
+      model: openai("gpt-5-mini"),
       prompt: `
     Summarize the following action response
     in three sections: Actions, Tools Used, Decision Reasoning.
