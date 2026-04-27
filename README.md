@@ -25,7 +25,7 @@ npm install
 
 Create a local env file:
 
-#### `.env.local` template
+#### `.env` template
 
 ```bash
 # --- NextAuth (recommended for local dev) ---
@@ -54,10 +54,9 @@ ISC_CLIENT_SECRET=replace_me
 # Vercel AI Gateway key.
 AI_GATEWAY_API_KEY=
 
-# Optional model override.
-# Default target when unset: gpt-5-mini (normalized to openai/gpt-5-mini via gateway).
-POLICY_RESOLUTION_MODEL=
 ```
+
+This project currently reads environment variables from `.env` in local development.
 
 #### Configure your ISC OAuth app (redirect URI)
 
@@ -102,7 +101,6 @@ lib/
   actions/isc.ts          # Server-side ISC API wrapper (most business logic lives here)
   utils.ts                # Shared utilities
 
-providers/                # React providers (theme)
 type/                     # Type augmentation (NextAuth session typing)
 middleware.ts             # Route protection via next-auth middleware
 ```
@@ -113,7 +111,7 @@ Folder notes:
 - **`components/component/`**: Feature components that render the app’s screens (policy violations, login, and header).
 - **`components/ui/`**: Reusable UI primitives (largely “shadcn/ui”-style components built on Radix UI).
 - **`lib/actions/`**: Server Actions / server-only integration logic (ISC API wrappers).
-- **`providers/` + `app/providers.tsx`**: Shared React providers (NextAuth `SessionProvider`, `next-themes` theme provider, header wrapper).
+- **`app/providers.tsx`**: Shared React providers (NextAuth `SessionProvider`, `next-themes` theme provider, header wrapper).
 - **`type/next-auth.d.ts`**: Extends NextAuth session types (e.g. `session.accessToken`, `session.user.id`, `capabilities`, `tenant`).
 
 ## Key libraries and what they do
@@ -135,8 +133,6 @@ Used by server actions to call ISC endpoints with the end-user access token from
 `lib/actions/isc.ts` includes an optional AI resolution workflow for policy violations:
 
 - `AI_GATEWAY_API_KEY` enables Vercel AI Gateway model calls (preferred)
-- `POLICY_RESOLUTION_MODEL` optionally overrides the default policy resolver model
-- The policy page includes a GUI model picker with common analysis models (selection is stored locally in the browser)
 - An ISC MCP endpoint is called at:
   - `${ISC_BASE_API_URL}/latest/access-requests/mcp`
 
