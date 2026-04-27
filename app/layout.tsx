@@ -9,8 +9,8 @@ import { authOptions } from "./api/auth/authOptions";
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "ACME DEMO - Identity Secure Cloud",
-  description: "ACME DEMO - Identity Secure Cloud",
+  title: "ACME Policy Violation Demo",
+  description: "Conference demo for resolving Identity Security Cloud policy violations",
 };
 
 export default async function RootLayout({
@@ -20,7 +20,7 @@ export default async function RootLayout({
 }>) {
   const session = await getServerSession(authOptions);
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en">
       <body className={inter.className}>
         <AntdRegistry>
           <Providers session={session}>{children}</Providers>
