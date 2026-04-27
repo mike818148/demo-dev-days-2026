@@ -99,6 +99,7 @@ interface PolicyDetailProps {
   policy: SodPolicyRead;
   violatedIdentities: IdentityDocument[];
   isLoadingViolations: boolean;
+  onRefreshViolatedIdentities?: () => void;
 }
 
 const AI_MODEL_OPTIONS = [
@@ -113,6 +114,7 @@ export function PolicyDetail({
   policy,
   violatedIdentities,
   isLoadingViolations,
+  onRefreshViolatedIdentities,
 }: PolicyDetailProps) {
   const [processingIdentityId, setProcessingIdentityId] = useState<string | null>(
     null
@@ -545,21 +547,49 @@ export function PolicyDetail({
                 </div>
               </div>
               {canShowActions && (
-                <div className="w-56 space-y-1">
-                  <p className="text-xs text-muted-foreground">AI model</p>
-                  <Select value={selectedAIModel} onValueChange={setSelectedAIModel}>
-                    <SelectTrigger className="h-9 text-xs bg-background/80 border-border/50">
-                      <SelectValue placeholder="Select AI model" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {AI_MODEL_OPTIONS.map((modelOption) => (
-                        <SelectItem key={modelOption.value} value={modelOption.value}>
-                          {modelOption.label}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                <div className="flex items-end gap-2">
+                  <div className="w-56 space-y-1">
+                    <p className="text-xs text-muted-foreground">AI model</p>
+                    <Select value={selectedAIModel} onValueChange={setSelectedAIModel}>
+                      <SelectTrigger className="h-9 text-xs bg-background/80 border-border/50">
+                        <SelectValue placeholder="Select AI model" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {AI_MODEL_OPTIONS.map((modelOption) => (
+                          <SelectItem key={modelOption.value} value={modelOption.value}>
+                            {modelOption.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={onRefreshViolatedIdentities}
+                    disabled={isLoadingViolations}
+                    className="h-9"
+                  >
+                    <RefreshCw
+                      className={cn("h-3.5 w-3.5 mr-2", isLoadingViolations && "animate-spin")}
+                    />
+                    Refresh
+                  </Button>
                 </div>
+              )}
+              {!canShowActions && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onRefreshViolatedIdentities}
+                  disabled={isLoadingViolations}
+                  className="h-9"
+                >
+                  <RefreshCw
+                    className={cn("h-3.5 w-3.5 mr-2", isLoadingViolations && "animate-spin")}
+                  />
+                  Refresh
+                </Button>
               )}
             </div>
 

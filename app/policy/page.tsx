@@ -7,7 +7,7 @@ import {
 } from "@/components/component/policy-list";
 import { PolicyDetail } from "@/components/component/policy-detail";
 import { IdentityDocument, SodPolicyRead } from "sailpoint-api-client";
-import { getPolicies } from "@/lib/actions/isc";
+import { getPolicies, getPolicyViolatedIdentities } from "@/lib/actions/isc";
 import { toast } from "sonner";
 import {
   ResizablePanelGroup,
@@ -69,6 +69,43 @@ export default function PolicyPage() {
     }));
   };
 
+  const handleRefreshSelectedPolicyViolations = async () => {
+    if (!selectedPolicyId || !selectedPolicy?.policyQuery) {
+      return;
+    }
+
+    setPolicyViolations((current) => ({
+      ...current,
+      [selectedPolicyId]: {
+        identities: current[selectedPolicyId]?.identities ?? [],
+        isLoading: true,
+      },
+    }));
+
+    try {
+      const result = await getPolicyViolatedIdentities(selectedPolicy.policyQuery);
+      const identities = "identities" in result ? result.identities : [];
+
+      setPolicyViolations((current) => ({
+        ...current,
+        [selectedPolicyId]: {
+          identities,
+          isLoading: false,
+        },
+      }));
+    } catch (error) {
+      console.error("Error refreshing policy violations:", error);
+      setPolicyViolations((current) => ({
+        ...current,
+        [selectedPolicyId]: {
+          identities: current[selectedPolicyId]?.identities ?? [],
+          isLoading: false,
+        },
+      }));
+      toast.error("Failed to refresh violated identities");
+    }
+  };
+
   return (
     <div className="h-full bg-background p-8 overflow-hidden">
       <ResizablePanelGroup className="h-full">
@@ -79,6 +116,7 @@ export default function PolicyPage() {
               policies={policies}
               selectedPolicyId={selectedPolicyId}
               onSelectPolicy={handleSelectPolicy}
+              policyViolations={policyViolations}
               onPolicyViolationsUpdate={handlePolicyViolationsUpdate}
               isLoading={isLoading}
             />
@@ -94,6 +132,7 @@ export default function PolicyPage() {
               policy={selectedPolicy}
               violatedIdentities={selectedPolicyViolations?.identities ?? []}
               isLoadingViolations={selectedPolicyViolations?.isLoading ?? false}
+              onRefreshViolatedIdentities={handleRefreshSelectedPolicyViolations}
             />
           ) : (
             <div className="flex items-center justify-center h-full text-muted-foreground">

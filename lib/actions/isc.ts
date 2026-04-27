@@ -66,6 +66,41 @@ function getErrorDetails(error: unknown): string {
   return "Unknown error";
 }
 
+/**
+ * Source systems often expose DNs in policy or identity "access" data. The ISC
+ * access request API expects the SailPoint object id (search document `id`),
+ * not LDAP-style distinguished names.
+ */
+function isLikelyLdapDistinguishedName(value: string): boolean {
+  const v = value.trim();
+  if (!v) {
+    return false;
+  }
+  if (/^cn=/i.test(v)) {
+    return true;
+  }
+  if (/(^|[,])(cn|ou|ldif|dc)=/i.test(v) && v.includes("=") && (v.includes(",") || v.toLowerCase().includes("dc="))) {
+    return true;
+  }
+  return false;
+}
+
+const accessRequestRequestedItemZod = z.object({
+  id: z
+    .string()
+    .min(1)
+    .refine((id) => !isLikelyLdapDistinguishedName(id), {
+      message:
+        "Must be the ISC object id (search-access document id, often a UUID), not a native identifier such as an LDAP distinguished name (CN=...,DC=...).",
+    }),
+  type: z
+    .nativeEnum(RequestedItemDtoRefTypeV3)
+    .describe(
+      'The type of the requested item: "ACCESS_PROFILE", "ENTITLEMENT", or "ROLE"'
+    ),
+  comment: z.string().describe("The comment for the access request"),
+});
+
 async function getAuthenticatedSession() {
   const session = await getServerSession(authOptions);
   if (!session?.accessToken) {
@@ -145,15 +180,36 @@ async function createAccessRequestInternal(
       return { error: "Requestees are required" };
     }
 
+    for (const item of requestedItems) {
+      if (item.id && isLikelyLdapDistinguishedName(item.id)) {
+        return {
+          error:
+            "Requested item id is not a valid ISC object id (it looks like a native source identifier, e.g. an LDAP DN). Use search-access and pass the `id` from the returned document for that entitlement, role, or access profile — do not copy ids from Conflicting Access criteria or similar policy text if they are DNs.",
+        };
+      }
+    }
+
     const api = new AccessRequestsApi(
       getConfiguration(session.accessToken)
     );
+    const accessRequestBody = {
+      requestedFor: requesteeIds,
+      requestType: accessRequestType,
+      requestedItems,
+    };
+    console.info(
+      "[createAccessRequestInternal] createAccessRequest request",
+      JSON.stringify(accessRequestBody, null, 2)
+    );
+
     const result = await api.createAccessRequest({
-      accessRequest: {
-        requestedFor: requesteeIds,
-        requestType: accessRequestType,
-        requestedItems,
-      },
+      accessRequest: accessRequestBody,
+    });
+
+    console.info("[createAccessRequestInternal] createAccessRequest response", {
+      status: result.status,
+      statusText: result.statusText,
+      data: result.data,
     });
 
     if (result.status.toString().startsWith("2")) {
@@ -277,46 +333,73 @@ export async function resolvePolicyViolationWithAI(
 
     const sessionUserId = session.user?.id;
     const sessionUserName = session.user?.name;
-    mcpClient = await createMCPClient({
-      transport: {
-        type: "http",
-        url: `${process.env.ISC_BASE_API_URL}/latest/access-requests/mcp`,
-        headers: {
-          Authorization: `Bearer ${session.accessToken}`,
-        },
-      },
-      name: "isc-access-requests-mcp",
-    });
+    const isSessionUserAffectedIdentity = Boolean(
+      sessionUserId && identity.id && String(sessionUserId) === String(identity.id)
+    );
 
-    const iscMCPTools = await mcpClient.tools();
+    if (isSessionUserAffectedIdentity) {
+      mcpClient = await createMCPClient({
+        transport: {
+          type: "http",
+          url: `${process.env.ISC_BASE_API_URL}/latest/access-requests/mcp`,
+          headers: {
+            Authorization: `Bearer ${session.accessToken}`,
+          },
+        },
+        name: "isc-access-requests-mcp",
+      });
+    }
+
+    const iscMCPTools = mcpClient ? await mcpClient.tools() : {};
+    const identityAccessRequestTypeSchema = isSessionUserAffectedIdentity
+      ? z
+          .literal(AccessRequestType.RevokeAccess)
+          .describe(
+            `Use "${AccessRequestType.RevokeAccess}". Grant requests for the session user must use create-self-access-request.`
+          )
+      : z
+          .nativeEnum(AccessRequestType)
+          .describe(
+            `Use "${AccessRequestType.GrantAccess}" to grant access or "${AccessRequestType.RevokeAccess}" to remove access.`
+          );
     const availableToolsRaw: Record<string, any> = {
-      "create-access-request": iscMCPTools?.["create-access-request"],
-      "create-removal-access-request": tool({
-        description: "Create a removal access request",
+      ...(isSessionUserAffectedIdentity
+        ? {
+            "create-self-access-request": iscMCPTools?.["create-access-request"],
+          }
+        : {}),
+      "create-identity-access-request": tool({
+        description: isSessionUserAffectedIdentity
+          ? "Create a revoke access request for the affected session user using the SailPoint API"
+          : "Create a grant or revoke access request for a specified identity using the SailPoint API",
         inputSchema: z.object({
-          requestedItem: z.object({
-            id: z.string().describe("The ID of the requested item"),
-            type: z
-              .nativeEnum(RequestedItemDtoRefTypeV3)
-              .describe(
-                'The type of the requested item: "ACCESS_PROFILE", "ENTITLEMENT", or "ROLE"'
-              ),
-            comment: z.string().describe("The comment for the access request"),
-          }),
-          requesteeId: z.string().describe("The requestee ID to remove access for"),
+          requestedItem: accessRequestRequestedItemZod.describe(
+            "Requested access item. The id must come from a search-access hit (ISC object id), not a native/LDAP DN."
+          ),
+          requesteeId: z
+            .string()
+            .describe(
+              `The identity ID to request access for. Use the affected identity ID: ${identity.id}`
+            ),
+          requestType: identityAccessRequestTypeSchema,
         }),
-        execute: async ({ requestedItem, requesteeId }) => {
+        execute: async ({ requestedItem, requesteeId, requestType }) => {
           return createAccessRequestInternal(
             [requestedItem],
             [requesteeId],
-            AccessRequestType.RevokeAccess
+            requestType
           );
         },
       }),
       "search-access": tool({
-        description: "Search for an access item needed to resolve a policy violation",
+        description:
+          "Search entitlements, roles, and access profiles by keyword. Use a short name fragment (e.g. display name or word from the object name), not a full LDAP DN. Every access request must use the document `id` from the search result as requestedItem.id — that is the only valid ISC object id for createAccessRequest.",
         inputSchema: z.object({
-          name: z.string().describe("The access item name to search for"),
+          name: z
+            .string()
+            .describe(
+              "Keyword to search in access profile, entitlement, and role names (e.g. WindowsAdministration). Do not pass an LDAP distinguished name."
+            ),
         }),
         execute: async ({ name }) => {
           return performSearch(
@@ -343,16 +426,21 @@ Strategy:
 - Available tools: ${toolNames || "None"}
 - Use Correction Advice as the primary driver for what to do. Some policies are resolved by revoking conflicting access; others are resolved by granting missing required access.
 - Choose the smallest change that resolves the violation with least privilege and minimal business impact.
-- Tool limitation: the MCP tool "create-access-request" can only act for the current session user. If the target identity is not the session user, do not call tools; explain why.
+- If the target identity is the session user and the correction requires a grant, use "create-self-access-request".
+- For every revoke/removal action, use "create-identity-access-request", even when the target identity is the session user.
+- If the target identity is not the session user, use "create-identity-access-request" for grant or revoke actions and pass the affected identity ID as requesteeId.
+- For grant actions, use AccessRequestType.GrantAccess. For revoke/removal actions, use AccessRequestType.RevokeAccess.
+- ID rule: "Conflicting Access" and similar policy lines often show source-native ids (e.g. LDAP DNs). Those values are not valid for access requests. Always call search-access, then set requestedItem.id to the search hit document's id field (ISC object id), never a CN=... string.
 - Always answer with exactly these sections: Actions, Tools Used, Decision Reasoning.`,
       prompt: `Resolve the policy violation for identity "${identity.name}" (ID: ${identity.id}) related to policy "${policy.name}" (ID: ${policy.id}).
 
 Important:
 - Session user: ${sessionUserName} (${sessionUserId})
-- If the target identity is not the session user, do nothing and explain why.
-- If Correction Advice indicates a grant, use the grant/create-access-request tool.
-- If Correction Advice indicates a revoke/removal, use the removal/revoke tool.
-- If you need an access item's ID/type, use search-access first, then immediately use the appropriate grant/revoke tool.
+- Affected identity is session user: ${isSessionUserAffectedIdentity ? "yes" : "no"}
+- If Correction Advice indicates a grant, create a ${AccessRequestType.GrantAccess} request.
+- If Correction Advice indicates a revoke/removal, create a ${AccessRequestType.RevokeAccess} request.
+- If you need an access item's ID/type, use search-access first, then use the result document id and correct type, then call the appropriate grant/revoke tool. Never use an id that looks like CN=... or a full LDAP distinguished name.
+- A generic "semantically invalid" error from the API often means a bad id reference (wrong object, wrong tenant id, or native id instead of ISC id) — re-run search-access and try the correct document id.
 
 Policy Details:
   - ID: ${policy.id}

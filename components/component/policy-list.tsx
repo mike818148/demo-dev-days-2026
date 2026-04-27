@@ -9,6 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Loader2,
+  RefreshCw,
   Shield,
   CheckCircle2,
   XCircle,
@@ -48,6 +49,13 @@ interface PolicyListProps {
   policies: SodPolicyRead[];
   selectedPolicyId: string;
   onSelectPolicy: (id: string) => void;
+  policyViolations?: Record<
+    string,
+    {
+      identities: IdentityDocument[];
+      isLoading: boolean;
+    }
+  >;
   onPolicyViolationsUpdate?: (update: PolicyViolationsUpdate) => void;
   isLoading?: boolean;
 }
@@ -122,6 +130,7 @@ export function PolicyList({
   policies,
   selectedPolicyId,
   onSelectPolicy,
+  policyViolations,
   onPolicyViolationsUpdate,
   isLoading = false,
 }: PolicyListProps) {
@@ -169,6 +178,26 @@ export function PolicyList({
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
   const endIndex = startIndex + ITEMS_PER_PAGE;
   const paginatedPolicies = filteredPolicies.slice(startIndex, endIndex);
+
+  useEffect(() => {
+    if (!policyViolations) {
+      return;
+    }
+
+    setViolationCounts((current) => {
+      const next = { ...current };
+
+      for (const [policyId, violationState] of Object.entries(policyViolations)) {
+        next[policyId] = {
+          count: violationState.identities.length,
+          identities: violationState.identities,
+          isLoading: violationState.isLoading,
+        };
+      }
+
+      return next;
+    });
+  }, [policyViolations]);
 
   useEffect(() => {
     const policiesToLoad = paginatedPolicies.filter((policy) => {
@@ -266,6 +295,80 @@ export function PolicyList({
   const activeFilters =
     (stateFilter !== "all" ? 1 : 0) + (typeFilter !== "all" ? 1 : 0);
 
+  const refreshVisibleViolationCounts = async () => {
+    const policiesToRefresh = paginatedPolicies.filter(
+      (policy) => !!policy.id && !!policy.policyQuery && policy.state === "ENFORCED"
+    );
+
+    if (policiesToRefresh.length === 0) {
+      return;
+    }
+
+    setViolationCounts((current) => {
+      const next = { ...current };
+      for (const policy of policiesToRefresh) {
+        if (policy.id) {
+          const currentState = current[policy.id];
+          next[policy.id] = {
+            count: currentState?.count ?? 0,
+            identities: currentState?.identities ?? [],
+            isLoading: true,
+          };
+          onPolicyViolationsUpdate?.({
+            policyId: policy.id,
+            identities: currentState?.identities ?? [],
+            isLoading: true,
+          });
+        }
+      }
+      return next;
+    });
+
+    const results = await Promise.all(
+      policiesToRefresh.map(async (policy) => {
+        if (!policy.id || !policy.policyQuery) {
+          return null;
+        }
+
+        try {
+          const result = await getPolicyViolatedIdentities(policy.policyQuery);
+          const identities = "identities" in result ? result.identities : [];
+          return {
+            policyId: policy.id,
+            identities,
+            count: identities.length,
+          };
+        } catch (error) {
+          console.error("Error refreshing policy violation count:", error);
+          return {
+            policyId: policy.id,
+            identities: [],
+            count: 0,
+          };
+        }
+      })
+    );
+
+    setViolationCounts((current) => {
+      const next = { ...current };
+      for (const result of results) {
+        if (result) {
+          next[result.policyId] = {
+            count: result.count,
+            identities: result.identities,
+            isLoading: false,
+          };
+          onPolicyViolationsUpdate?.({
+            policyId: result.policyId,
+            identities: result.identities,
+            isLoading: false,
+          });
+        }
+      }
+      return next;
+    });
+  };
+
   return (
     <div className="w-full h-full flex flex-col min-w-0">
       <div className="flex-shrink-0 p-4 space-y-4 border-b border-border/50 bg-gradient-to-b from-muted/30 to-transparent">
@@ -288,15 +391,27 @@ export function PolicyList({
               )}
             </div>
           </div>
-          {activeFilters > 0 && (
-            <Badge
-              variant="secondary"
-              className="text-xs bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={refreshVisibleViolationCounts}
+              disabled={isLoading}
+              className="h-7 px-2 text-xs"
             >
-              <Filter className="w-3 h-3 mr-1" />
-              {activeFilters} filter{activeFilters > 1 ? "s" : ""}
-            </Badge>
-          )}
+              <RefreshCw className="w-3 h-3 mr-1" />
+              Refresh Violations
+            </Button>
+            {activeFilters > 0 && (
+              <Badge
+                variant="secondary"
+                className="text-xs bg-cyan-500/10 text-cyan-600 dark:text-cyan-400"
+              >
+                <Filter className="w-3 h-3 mr-1" />
+                {activeFilters} filter{activeFilters > 1 ? "s" : ""}
+              </Badge>
+            )}
+          </div>
         </div>
 
         <div className="relative group">

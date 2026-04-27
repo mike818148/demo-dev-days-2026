@@ -5,7 +5,11 @@ import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 
-export function LoginForm() {
+type LoginFormProps = {
+  iscBaseUrl?: string
+}
+
+export function LoginForm({ iscBaseUrl }: LoginFormProps) {
   const searchParams = useSearchParams()
   const rawCallbackUrl = searchParams.get("callbackUrl") || "/"
   // Prevent redirect loops by ensuring we never redirect back to login
@@ -37,7 +41,12 @@ export function LoginForm() {
 
           <div className="text-center text-sm text-muted-foreground pt-2">
             {"Don't have an account? "}
-            <a href="#" className="text-primary hover:text-primary/80 transition-colors font-medium">
+            <a
+              href={iscBaseUrl || "/"}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary hover:text-primary/80 transition-colors font-medium"
+            >
               Contact your administrator
             </a>
           </div>
