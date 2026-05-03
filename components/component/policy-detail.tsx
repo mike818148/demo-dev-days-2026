@@ -29,6 +29,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import {
   Shield,
@@ -125,6 +126,7 @@ export function PolicyDetail({
   const [resultDialogIdentity, setResultDialogIdentity] =
     useState<IdentityDocument | null>(null);
   const [selectedAIModel, setSelectedAIModel] = useState<string>("openai/gpt-5-mini");
+  const [systemPromptAddition, setSystemPromptAddition] = useState("");
 
   useEffect(() => {
     const checkOpenAIAvailability = async () => {
@@ -160,7 +162,9 @@ export function PolicyDetail({
     setResultDialogOpen(true);
 
     try {
-      const result = await resolvePolicyViolationWithAI(policy, identity, selectedAIModel);
+      const result = await resolvePolicyViolationWithAI(policy, identity, selectedAIModel, {
+        systemPromptAddition,
+      });
 
       if ("error" in result) {
         setResultDialogTitle("Policy violation resolution failed");
@@ -593,6 +597,34 @@ export function PolicyDetail({
             </div>
 
             <div className="p-4">
+              {canShowActions && (
+                <div className="mb-4 rounded-lg border border-border/50 bg-muted/20 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium">Additional Prompt Context (optional)</p>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-7 px-2 text-xs"
+                      onClick={() => setSystemPromptAddition("")}
+                      disabled={!systemPromptAddition}
+                    >
+                      Clear
+                    </Button>
+                  </div>
+                  <div className="space-y-1.5">
+                    <p className="text-xs text-muted-foreground">
+                      System prompt addition
+                    </p>
+                    <Textarea
+                      value={systemPromptAddition}
+                      onChange={(event) => setSystemPromptAddition(event.target.value)}
+                      placeholder="High-level rules for the assistant (e.g. prefer revoke when risk is high)."
+                      className="min-h-[84px] text-xs"
+                    />
+                  </div>
+                </div>
+              )}
               {isLoadingViolations ? (
                 <div className="flex flex-col items-center justify-center py-12">
                   <div className="relative">

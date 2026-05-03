@@ -51,6 +51,10 @@ type IdentityAccessItem = {
   displayName?: string;
 };
 
+type PolicyResolutionPromptOptions = {
+  systemPromptAddition?: string;
+};
+
 function getErrorDetails(error: unknown): string {
   const messages = (
     error as { response?: { data?: { messages?: unknown } } } | undefined
@@ -321,7 +325,8 @@ function formatIdentityAccess(access: unknown): string {
 export async function resolvePolicyViolationWithAI(
   policy: SodPolicyRead,
   identity: IdentityDocument,
-  modelOverride?: string
+  modelOverride?: string,
+  promptOptions?: PolicyResolutionPromptOptions
 ): Promise<{ message: string } | { error: string }> {
   let mcpClient: Awaited<ReturnType<typeof createMCPClient>> | null = null;
 
@@ -415,6 +420,7 @@ export async function resolvePolicyViolationWithAI(
       Object.entries(availableToolsRaw).filter(([, value]) => Boolean(value))
     );
     const toolNames = Object.keys(availableTools).join(", ");
+    const systemPromptAddition = promptOptions?.systemPromptAddition?.trim();
 
     const response = await generateText({
       model: getPolicyResolutionModel(modelOverride),
@@ -431,7 +437,8 @@ Strategy:
 - If the target identity is not the session user, use "create-identity-access-request" for grant or revoke actions and pass the affected identity ID as requesteeId.
 - For grant actions, use AccessRequestType.GrantAccess. For revoke/removal actions, use AccessRequestType.RevokeAccess.
 - ID rule: "Conflicting Access" and similar policy lines often show source-native ids (e.g. LDAP DNs). Those values are not valid for access requests. Always call search-access, then set requestedItem.id to the search hit document's id field (ISC object id), never a CN=... string.
-- Always answer with exactly these sections: Actions, Tools Used, Decision Reasoning.`,
+- Always answer with exactly these sections: Actions, Tools Used, Decision Reasoning.
+${systemPromptAddition ? `- Additional instruction from frontend: ${systemPromptAddition}` : ""}`,
       prompt: `Resolve the policy violation for identity "${identity.name}" (ID: ${identity.id}) related to policy "${policy.name}" (ID: ${policy.id}).
 
 Important:
