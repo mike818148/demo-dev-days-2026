@@ -104,10 +104,9 @@ interface PolicyDetailProps {
 
 const AI_MODEL_OPTIONS = [
   { value: "openai/gpt-5-mini", label: "GPT-5 mini" },
-  { value: "openai/gpt-5", label: "GPT-5" },
-  { value: "anthropic/claude-3-7-sonnet", label: "Claude 3.7 Sonnet" },
-  { value: "anthropic/claude-3-5-sonnet", label: "Claude 3.5 Sonnet" },
-  { value: "google/gemini-2.5-pro", label: "Gemini 2.5 Pro" },
+  { value: "openai/gpt-5.5", label: "GPT-5.5" },
+  { value: "anthropic/claude-sonnet-4.6", label: "Claude 4.6 Sonnet" },
+  { value: "google/gemini-3-pro-preview", label: "Gemini 3 Pro Preview" },
 ];
 
 export function PolicyDetail({
@@ -209,7 +208,7 @@ export function PolicyDetail({
                     className={cn(
                       "border-white/20 text-white/80 bg-white/5",
                       policy.type === "CONFLICTING_ACCESS_BASED" &&
-                        "border-orange-400/40 text-orange-200 bg-orange-500/15"
+                      "border-orange-400/40 text-orange-200 bg-orange-500/15"
                     )}
                   >
                     {formatPolicyType(policy.type)}
